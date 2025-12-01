@@ -1,7 +1,0 @@
-streamlit
-mcp
-openai
-python-dotenv
-pandas
-pypdf
-python-docx

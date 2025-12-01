@@ -9,15 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements files
-COPY server/requirements.txt ./server/requirements.txt
-COPY client_streamlit/requirements.txt ./client_streamlit/requirements.txt
-COPY client_slack/requirements.txt ./client_slack/requirements.txt
+# Copy requirements file
+COPY requirements.txt .
 
 # Install python dependencies
-RUN pip install --no-cache-dir -r server/requirements.txt
-RUN pip install --no-cache-dir -r client_streamlit/requirements.txt
-RUN pip install --no-cache-dir -r client_slack/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application code
 COPY . .

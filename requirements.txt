@@ -1,0 +1,12 @@
+aiohttp
+beautifulsoup4
+httpx
+mcp
+openai
+pandas
+pypdf
+python-docx
+python-dotenv
+python-jobspy
+slack_bolt
+streamlit

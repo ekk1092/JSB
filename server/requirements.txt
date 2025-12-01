@@ -1,8 +1,0 @@
-mcp
-python-jobspy
-openai
-python-dotenv
-pandas
-beautifulsoup4
-python-docx
-httpx
