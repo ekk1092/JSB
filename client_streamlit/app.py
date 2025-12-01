@@ -2,11 +2,15 @@ import streamlit as st
 import asyncio
 import os
 import sys
+import threading
+import tempfile
+import uuid
+from pathlib import Path
+from datetime import datetime
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from openai import AzureOpenAI
 from dotenv import load_dotenv
-import pandas as pd
 import io
 
 # Load environment variables
@@ -23,44 +27,120 @@ client = AzureOpenAI(
 )
 deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
 
+# -----------------------------------------------------------------------------
+# 1. Threaded Event Loop (Best Practice from Code 2)
+# -----------------------------------------------------------------------------
+@st.cache_resource
+def get_event_loop():
+    """Create and return a persistent event loop for async operations in a separate thread."""
+    loop = asyncio.new_event_loop()
+
+    def run_loop():
+        asyncio.set_event_loop(loop)
+        loop.run_forever()
+
+    thread = threading.Thread(target=run_loop, daemon=True)
+    thread.start()
+    return loop
+
+# -----------------------------------------------------------------------------
+# 2. Enhanced System Prompt (Best Practice from Code 2)
+# -----------------------------------------------------------------------------
+def build_enhanced_system_prompt(resume_text=None, tools_list=None):
+    """Build system prompt incorporating server capabilities and resume context."""
+    current_date = datetime.now().strftime("%B %d, %Y")
+
+    base_prompt = f"""You are a Job Search Assistant helping candidates find opportunities and navigate applications. 
+    Today is {current_date}.
+
+    ## YOUR ROLE & PHILOSOPHY
+    You help candidates pursue their CAREER GOALS, not just roles matching their current experience.
+    - Ask about roles they WANT to pursue.
+    - NEVER assume someone wants jobs similar to their current role.
+
+    ## WORKFLOW
+    1. **DISCOVERY**: Understand the target role, level, and location.
+    2. **JOB SEARCH**: Use tools to find positions matching GOALS.
+    3. **DOCUMENT CREATION**:
+       - **Resumes**: Tailor to the SPECIFIC job. Lead with relevant skills.
+       - **Cover Letters**: Address specific requirements.
+       - Always inform the user they can download the generated file.
+
+    ## AVAILABLE TOOLS
+    """
+    
+    if tools_list:
+        for tool in tools_list:
+             base_prompt += f"- {tool['function']['name']}: {tool['function']['description']}\n"
+
+    if resume_text:
+        base_prompt += f"\n## CANDIDATE RESUME CONTEXT:\n{resume_text}\n"
+
+    return base_prompt
+
+# -----------------------------------------------------------------------------
 # Session State Initialization
+# -----------------------------------------------------------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "resume_text" not in st.session_state:
     st.session_state.resume_text = None
+if "resume_path" not in st.session_state:
+    st.session_state.resume_path = None
 
-# Sidebar for Resume Upload
+# -----------------------------------------------------------------------------
+# 3. File Upload with Temp Storage (Best Practice from Code 2)
+# -----------------------------------------------------------------------------
 with st.sidebar:
+    # Add Logo
+    current_dir = Path(__file__).parent
+    logo_path = current_dir / "uncw_logo.png"
+    if logo_path.exists():
+        st.image(str(logo_path), width='stretch')
+    else:
+        st.warning("Logo not found")
+
     st.title("📄 Resume Upload")
     uploaded_file = st.file_uploader("Upload your Resume (TXT/MD/PDF/DOCX)", type=["txt", "md", "pdf", "docx", "doc"])
     
     if uploaded_file:
         try:
+            # Save to temp file
+            tmp_dir = Path(tempfile.gettempdir())
+            safe_name = f"{uuid.uuid4()}_{uploaded_file.name}"
+            resume_abs_path = tmp_dir / safe_name
+            
+            with open(resume_abs_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            
+            st.session_state.resume_path = str(resume_abs_path)
+            
+            # Extract text for context
             file_ext = uploaded_file.name.split(".")[-1].lower()
+            text = ""
             
             if file_ext in ["txt", "md"]:
-                stringio = io.StringIO(uploaded_file.getvalue().decode("utf-8"))
-                st.session_state.resume_text = stringio.read()
+                text = uploaded_file.getvalue().decode("utf-8")
             elif file_ext == "pdf":
                 import pypdf
-                pdf_reader = pypdf.PdfReader(uploaded_file)
-                text = ""
+                pdf_reader = pypdf.PdfReader(io.BytesIO(uploaded_file.getvalue()))
                 for page in pdf_reader.pages:
                     text += page.extract_text() + "\n"
-                st.session_state.resume_text = text
             elif file_ext in ["docx", "doc"]:
                 import docx
-                doc = docx.Document(uploaded_file)
-                text = ""
+                doc = docx.Document(io.BytesIO(uploaded_file.getvalue()))
                 for para in doc.paragraphs:
                     text += para.text + "\n"
-                st.session_state.resume_text = text
-                
+            
+            st.session_state.resume_text = text
             st.success("Resume uploaded and processed successfully!")
+            
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
 
+# -----------------------------------------------------------------------------
 # Main Chat Interface
+# -----------------------------------------------------------------------------
 st.title("💼 AI Job Assistant")
 st.markdown("I can help you search for jobs, tailor your resume, and write cover letters.")
 
@@ -69,16 +149,16 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Async function to handle MCP interaction
-async def run_chat_loop(user_input):
-    # Determine connection method
+# -----------------------------------------------------------------------------
+# Async Logic (Executed on Threaded Loop)
+# -----------------------------------------------------------------------------
+async def run_chat_logic(user_input):
+    # This function encapsulates the entire session lifecycle to avoid passing 'session' out
     mcp_server_url = os.getenv("MCP_SERVER_URL")
-
     if mcp_server_url:
         from mcp.client.sse import sse_client
         client_context = sse_client(mcp_server_url)
     else:
-        # Server parameters for local stdio
         server_params = StdioServerParameters(
             command=sys.executable,
             args=["server/main.py"],
@@ -88,13 +168,9 @@ async def run_chat_loop(user_input):
 
     async with client_context as (read, write):
         async with ClientSession(read, write) as session:
-            # Initialize session
             await session.initialize()
-            
-            # List available tools
             tools = await session.list_tools()
             
-            # Prepare tools for OpenAI
             openai_tools = []
             for tool in tools.tools:
                 openai_tools.append({
@@ -106,99 +182,121 @@ async def run_chat_loop(user_input):
                     }
                 })
 
-            # Append user message
-            st.session_state.messages.append({"role": "user", "content": user_input})
-            with st.chat_message("user"):
-                st.markdown(user_input)
-
-            # Prepare context for LLM
-            messages = [
-                {"role": "system", "content": f"You are a helpful job assistant. You have access to tools. If the user asks to tailor a resume or write a cover letter, use the uploaded resume text: {st.session_state.resume_text if st.session_state.resume_text else 'No resume uploaded yet.'}. When you generate a resume or cover letter using the tools, inform the user that they can download the file using the buttons that will appear below your response."}
-            ] + st.session_state.messages
-
-            # Call LLM
-            with st.chat_message("assistant"):
-                message_placeholder = st.empty()
-                full_response = ""
+            system_prompt = build_enhanced_system_prompt(st.session_state.resume_text, openai_tools)
+            # Use a copy of messages to avoid mutating state prematurely
+            messages = [{"role": "system", "content": system_prompt}] + list(st.session_state.messages)
+            
+            # First LLM Call
+            response = client.chat.completions.create(
+                model=deployment_name,
+                messages=messages,
+                tools=openai_tools,
+                tool_choice="auto"
+            )
+            response_message = response.choices[0].message
+            
+            tool_outputs = []
+            final_response = ""
+            
+            if response_message.tool_calls:
+                messages.append(response_message)
+                for tool_call in response_message.tool_calls:
+                    import json
+                    function_args = json.loads(tool_call.function.arguments)
+                    
+                    # Notify UI (we can't directly update UI from here easily, so we return status)
+                    # For now, we just execute.
+                    
+                    result = await session.call_tool(tool_call.function.name, arguments=function_args)
+                    content = str(result.content)
+                    
+                    tool_outputs.append({
+                        "name": tool_call.function.name,
+                        "content": content
+                    })
+                    
+                    messages.append({
+                        "tool_call_id": tool_call.id,
+                        "role": "tool",
+                        "name": tool_call.function.name,
+                        "content": content
+                    })
                 
-                response = client.chat.completions.create(
+                second_response = client.chat.completions.create(
                     model=deployment_name,
-                    messages=messages,
-                    tools=openai_tools,
-                    tool_choice="auto"
+                    messages=messages
                 )
+                final_response = second_response.choices[0].message.content
+            else:
+                final_response = response_message.content
                 
-                response_message = response.choices[0].message
+            return final_response, tool_outputs
+
+# -----------------------------------------------------------------------------
+# User Input Handler
+# -----------------------------------------------------------------------------
+if prompt := st.chat_input("What would you like to do?"):
+    # 1. Append User Message
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+        
+    # 2. Run Async Logic (Directly)
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+            try:
+                final_response, tool_outputs = asyncio.run(run_chat_logic(prompt))
                 
-                # Handle Tool Calls
-                if response_message.tool_calls:
-                    messages.append(response_message)
+                # 3. Handle Tool Outputs (Downloads)
+                for output in tool_outputs:
+                    st.markdown(f"*Called tool: `{output['name']}`*")
                     
-                    for tool_call in response_message.tool_calls:
-                        function_name = tool_call.function.name
-                        function_args = eval(tool_call.function.arguments) # Safe for internal tools, use json.loads in prod
-                        
-                        message_placeholder.markdown(f"*Calling tool: `{function_name}`...*")
-                        
-                        # Call MCP Tool
-                        result = await session.call_tool(function_name, arguments=function_args)
-                        content = str(result.content)
-
-                        # Store generated content for download
-                        if function_name in ["tailor_resume", "generate_cover_letter"]:
-                            st.session_state.last_generated_content = content
-                            st.session_state.last_generated_type = "resume" if function_name == "tailor_resume" else "cover_letter"
-                        
-                        # Add tool result to messages
-                        messages.append({
-                            "tool_call_id": tool_call.id,
-                            "role": "tool",
-                            "name": function_name,
-                            "content": content
-                        })
+                    content = output['content']
                     
-                    # Get final response from LLM
-                    second_response = client.chat.completions.create(
-                        model=deployment_name,
-                        messages=messages
-                    )
-                    full_response = second_response.choices[0].message.content
-                else:
-                    full_response = response_message.content
+                    if output['name'] in ["tailor_resume", "generate_cover_letter"]:
+                        # Try to parse JSON output
+                        try:
+                            import json
+                            data = json.loads(content)
+                            
+                            if "preview" in data:
+                                st.markdown(data["preview"])
+                            
+                            if "file_path" in data:
+                                # Read the generated file
+                                with open(data["file_path"], "rb") as f:
+                                    file_bytes = f.read()
+                                
+                                st.session_state.last_generated_content = file_bytes
+                                st.session_state.last_generated_type = "resume" if output['name'] == "tailor_resume" else "cover_letter"
+                                
+                        except json.JSONDecodeError:
+                            # Fallback for plain text or error messages
+                            st.markdown(content)
+                    else:
+                        # Other tools
+                        st.markdown(content)
 
-                message_placeholder.markdown(full_response)
-                st.session_state.messages.append({"role": "assistant", "content": full_response})
-
-                # Show download buttons if content was generated in this turn
+                # 4. Display Final Response
+                st.markdown(final_response)
+                st.session_state.messages.append({"role": "assistant", "content": final_response})
+                
+                # 5. Show Download Buttons
                 if "last_generated_content" in st.session_state and st.session_state.last_generated_content:
                     content = st.session_state.last_generated_content
                     doc_type = st.session_state.last_generated_type
                     
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.download_button(
-                            label=f"Download {doc_type.replace('_', ' ').title()} (PDF)",
-                            data=content,
-                            file_name=f"{doc_type}.pdf",
-                            mime="application/pdf"
-                        )
-                    with col2:
-                        # Simple DOCX creation
-                        import docx
-                        doc = docx.Document()
-                        doc.add_paragraph(content)
-                        bio = io.BytesIO()
-                        doc.save(bio)
-                        st.download_button(
-                            label=f"Download {doc_type.replace('_', ' ').title()} (DOCX)",
-                            data=bio.getvalue(),
-                            file_name=f"{doc_type}.docx",
-                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        )
-                    
-                    # Clear after showing (optional, or keep it?)
-                    # st.session_state.last_generated_content = None
-
-# User Input
-if prompt := st.chat_input("What would you like to do?"):
-    asyncio.run(run_chat_loop(prompt))
+                    st.download_button(
+                        label=f"Download {doc_type.replace('_', ' ').title()} (DOCX)",
+                        data=content,
+                        file_name=f"{doc_type}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+                        
+            except Exception as e:
+                import traceback
+                error_msg = f"An error occurred: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+                if hasattr(e, 'exceptions'):
+                    for i, exc in enumerate(e.exceptions):
+                        error_msg += f"\nSub-exception {i+1}: {str(exc)}"
+                st.error(error_msg)
