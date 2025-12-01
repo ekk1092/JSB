@@ -14,7 +14,9 @@ mcp = FastMCP("Job Assistant", host="0.0.0.0", port=8080)
 def search_jobs(search_term: str, location: str = "remote", results_wanted: int = 10) -> str:
     """
     Search for jobs on various platforms (Indeed, LinkedIn, etc.).
-    Returns a CSV string of job listings.
+    Returns a CSV string of job listings, INCLUDING the full job description.
+    
+    IMPORTANT: The result ALREADY contains the job description. DO NOT call scrape_job_description on the URLs returned by this tool, as it will fail. Use the 'description' column from the CSV directly.
     """
     return search_jobs_tool(search_term, location, results_wanted)
 
@@ -44,4 +46,4 @@ def scrape_job_description(url: str) -> str:
     return scrape_job_description_tool(url)
 
 if __name__ == "__main__":
-   mcp.run(transport='sse')
+   mcp.run(transport='stdio')

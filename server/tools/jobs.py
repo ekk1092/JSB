@@ -33,7 +33,7 @@ def search_jobs_tool(search_term: str, location: str = "remote", results_wanted:
             return "No jobs found."
             
         # Select relevant columns
-        columns = ["title", "company", "location", "job_url"]
+        columns = ["title", "company", "location", "job_url", "description"]
         # Filter for columns that exist in the dataframe
         existing_columns = [col for col in columns if col in jobs.columns]
         jobs_filtered = jobs[existing_columns]

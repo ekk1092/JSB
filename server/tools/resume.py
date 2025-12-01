@@ -6,6 +6,7 @@ from docx import Document
 from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from openai import AzureOpenAI
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -25,7 +26,12 @@ def add_section_heading(doc: Document, text: str):
     heading_run.font.bold = True
     heading_run.font.color.rgb = RGBColor(0, 0, 0)
     heading.paragraph_format.space_before = Pt(6)
+    heading.paragraph_format.space_before = Pt(6)
     heading.paragraph_format.space_after = Pt(4)
+
+def sanitize_filename(name: str) -> str:
+    """Sanitize string for use in filename"""
+    return "".join(c for c in name if c.isalnum() or c in (' ', '-', '_')).strip().replace(' ', '_')
 
 def create_resume_docx(data: dict) -> str:
     """Create a professionally formatted resume in .docx format"""
@@ -184,7 +190,7 @@ def create_cover_letter_docx(data: dict) -> str:
                 p.paragraph_format.line_spacing = 1.15
                 
         # Closing
-        doc.add_paragraph("Sincerely,").paragraph_format.space_after = Pt(36)
+        doc.add_paragraph("Sincerely,").paragraph_format.space_after = Pt(12)
         doc.add_paragraph(data.get('name', ''))
         
         # Save to temp file
@@ -248,9 +254,15 @@ def tailor_resume_tool(resume_text: str, job_description: str) -> str:
         # Generate DOCX
         file_path = create_resume_docx(data)
         
+        # Generate dynamic filename
+        safe_name = sanitize_filename(data.get('name', 'Candidate'))
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        filename = f"Resume_{safe_name}_{date_str}.docx"
+
         result = {
             "preview": data.get("preview_markdown", "Resume tailored successfully."),
-            "file_path": file_path
+            "file_path": file_path,
+            "filename": filename
         }
         return json.dumps(result)
         
@@ -264,8 +276,11 @@ def generate_cover_letter_tool(resume_text: str, job_description: str) -> str:
     client = get_azure_client()
     deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
 
+    current_date = datetime.now().strftime("%B %d, %Y")
+
     prompt = f"""
     You are an expert career coach.
+    Today is {current_date}.
     
     JOB DESCRIPTION:
     {job_description}
@@ -274,13 +289,14 @@ def generate_cover_letter_tool(resume_text: str, job_description: str) -> str:
     {resume_text}
     
     Task: Write a compelling cover letter.
+    IMPORTANT: Do NOT include a closing salutation (like "Sincerely," or "Best regards,") in the body_paragraphs. The system will add this automatically.
     
     OUTPUT FORMAT:
     Return a JSON object with the following structure:
     {{
         "name": "Candidate Name",
         "contact": {{ "email": "...", "phone": "...", "address": "..." }},
-        "date": "Month Day, Year",
+        "date": "{current_date}",
         "recipient": {{ "name": "...", "title": "...", "company": "...", "address": "..." }},
         "body_paragraphs": ["Para 1...", "Para 2...", "Para 3..."],
         "preview_markdown": "A brief markdown summary of the cover letter strategy."
@@ -303,9 +319,17 @@ def generate_cover_letter_tool(resume_text: str, job_description: str) -> str:
         # Generate DOCX
         file_path = create_cover_letter_docx(data)
         
+        # Generate dynamic filename
+        safe_name = sanitize_filename(data.get('name', 'Candidate'))
+        recipient_company = data.get('recipient', {}).get('company', 'Company')
+        safe_company = sanitize_filename(recipient_company)
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        filename = f"CoverLetter_{safe_name}_{safe_company}_{date_str}.docx"
+
         result = {
             "preview": data.get("preview_markdown", "Cover letter generated successfully."),
-            "file_path": file_path
+            "file_path": file_path,
+            "filename": filename
         }
         return json.dumps(result)
         
