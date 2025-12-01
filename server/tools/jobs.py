@@ -3,7 +3,6 @@ from jobspy import scrape_jobs
 import pandas as pd
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def search_jobs_tool(search_term: str, location: str = "remote", results_wanted: int = 10) -> str:
@@ -34,7 +33,7 @@ def search_jobs_tool(search_term: str, location: str = "remote", results_wanted:
             return "No jobs found."
             
         # Select relevant columns
-        columns = ["title", "company", "location", "job_url", "description"]
+        columns = ["title", "company", "location", "job_url"]
         # Filter for columns that exist in the dataframe
         existing_columns = [col for col in columns if col in jobs.columns]
         jobs_filtered = jobs[existing_columns]

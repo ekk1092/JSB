@@ -1,7 +1,13 @@
 from mcp.server.fastmcp import FastMCP
 from tools.jobs import search_jobs_tool
 from tools.resume import tailor_resume_tool, generate_cover_letter_tool
+from tools.web_scraper import scrape_job_description_tool
+
 import logging
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -33,7 +39,6 @@ def generate_cover_letter(resume_text: str, job_description: str) -> str:
     """
     return generate_cover_letter_tool(resume_text, job_description)
 
-from tools.web_scraper import scrape_job_description_tool
 
 @mcp.tool()
 def scrape_job_description(url: str) -> str:

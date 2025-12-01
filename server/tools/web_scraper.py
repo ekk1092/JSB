@@ -3,7 +3,6 @@ import httpx
 from bs4 import BeautifulSoup
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def scrape_job_description_tool(url: str) -> str:
