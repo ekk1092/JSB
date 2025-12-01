@@ -284,6 +284,9 @@ if prompt := st.chat_input("What would you like to do?"):
                         except json.JSONDecodeError:
                             # Fallback for plain text or error messages
                             st.markdown(content)
+                    elif output['name'] in ["search_jobs", "scrape_job_description"]:
+                        # Completely hide raw output for these tools
+                        pass
                     else:
                         # Other tools
                         st.markdown(content)
