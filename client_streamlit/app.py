@@ -280,6 +280,7 @@ if prompt := st.chat_input("What would you like to do?"):
                                 
                                 st.session_state.last_generated_content = file_bytes
                                 st.session_state.last_generated_type = "resume" if output['name'] == "tailor_resume" else "cover_letter"
+                                st.session_state.last_generated_json = content
                                 
                         except json.JSONDecodeError:
                             # Fallback for plain text or error messages
@@ -297,15 +298,15 @@ if prompt := st.chat_input("What would you like to do?"):
                 
                 # 5. Show Download Buttons
                 if "last_generated_content" in st.session_state and st.session_state.last_generated_content:
-                    content = st.session_state.last_generated_content
+                    content_bytes = st.session_state.last_generated_content
                     doc_type = st.session_state.last_generated_type
                     
                     st.download_button(
                         label=f"Download {doc_type.replace('_', ' ').title()} (DOCX)",
-                        data=content,
+                        data=content_bytes,
                         file_name=f"{doc_type}.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    )
+                        )
                         
             except Exception as e:
                 import traceback
