@@ -34,14 +34,5 @@ def generate_cover_letter(resume_text: str, job_description: str) -> str:
     """
     return generate_cover_letter_tool(resume_text, job_description)
 
-
-@mcp.tool()
-def scrape_job_description(url: str) -> str:
-    """
-    Scrape the job description from a URL.
-    Useful when the user provides a link to a job posting (e.g. Indeed, LinkedIn).
-    """
-    return scrape_job_description_tool(url)
-
 if __name__ == "__main__":
-   mcp.run(transport='sse')
+   mcp.run(transport='stdio')

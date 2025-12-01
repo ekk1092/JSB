@@ -25,7 +25,6 @@ def search_jobs_tool(search_term: str, location: str = "remote", results_wanted:
             search_term=search_term,
             location=location,
             results_wanted=results_wanted,
-            hours_old=72, # Last 3 days
             country_urlpatterns={"indeed": "https://www.indeed.com"},
         )
         
