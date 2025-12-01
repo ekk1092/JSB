@@ -1,0 +1,8 @@
+slack_bolt
+mcp
+openai
+python-dotenv
+pandas
+aiohttp
+pypdf
+python-docx
