@@ -143,3 +143,17 @@ az containerapp create \
 -   **Image Pull Errors**: Ensure `admin-enabled` is true for your ACR and you are passing the correct username/password.
 -   **Architecture Mismatch**: Ensure you build with `--platform linux/amd64` if deploying to Azure from a Mac (M1/M2).
 -   **Connection Errors**: Verify the `MCP_SERVER_URL` is correct and accessible.
+
+## 8. Verification
+
+After deployment, verify the application:
+
+1.  **Streamlit Client**:
+    -   Navigate to the Streamlit URL.
+    -   Verify the **UNCW Logo** is present in the sidebar.
+    -   Type "what can you do?" in the chat.
+    -   Confirm the assistant responds correctly (this verifies the SSE connection).
+
+2.  **Slack Bot**:
+    -   Message the bot in Slack.
+    -   Upload a resume and confirm it is processed.
