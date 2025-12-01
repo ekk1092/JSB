@@ -208,7 +208,18 @@ async def run_chat_logic(user_input):
                     # For now, we just execute.
                     
                     result = await session.call_tool(tool_call.function.name, arguments=function_args)
-                    content = str(result.content)
+                    
+                    # Extract text from content items
+                    content_parts = []
+                    if hasattr(result, 'content') and isinstance(result.content, list):
+                        for item in result.content:
+                            if hasattr(item, 'text'):
+                                content_parts.append(item.text)
+                            else:
+                                content_parts.append(str(item))
+                        content = "\n".join(content_parts)
+                    else:
+                        content = str(result)
                     
                     tool_outputs.append({
                         "name": tool_call.function.name,
