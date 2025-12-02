@@ -55,3 +55,14 @@ echo ""
 echo "=================================================="
 echo "Deployment Complete! 🚀"
 echo "=================================================="
+
+# Retrieve and display URLs
+echo ""
+echo "Retrieving App URLs..."
+STREAMLIT_URL=$(az containerapp show --name streamlit-client --resource-group $RESOURCE_GROUP --query properties.configuration.ingress.fqdn --output tsv)
+MCP_URL=$(az containerapp show --name mcp-server --resource-group $RESOURCE_GROUP --query properties.configuration.ingress.fqdn --output tsv)
+
+echo "--------------------------------------------------"
+echo "Streamlit App: https://$STREAMLIT_URL"
+echo "MCP Server:    https://$MCP_URL/sse"
+echo "--------------------------------------------------"

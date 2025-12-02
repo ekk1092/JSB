@@ -81,7 +81,7 @@ def clear_generated_state():
 with st.sidebar:
     # Add Logo
     current_dir = Path(__file__).parent
-    logo_path = current_dir / "uncw_logo.png"
+    logo_path = current_dir / "ds_logo.png"
     if logo_path.exists():
         st.image(str(logo_path), width='stretch')
     else:

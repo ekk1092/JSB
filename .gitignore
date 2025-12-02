@@ -7,3 +7,9 @@ __pycache__
 InternDeploy.md
 *.txt
 job_assistant.egg-info/PKG-INFO
+
+# deployment files
+setup_and_deploy.sh
+InternDeploy.md
+deploy_all.sh
+deploy_custom_url.sh
