@@ -29,7 +29,7 @@ client = AzureOpenAI(
 deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
 
 # -----------------------------------------------------------------------------
-# 1. Threaded Event Loop (Best Practice from Code 2)
+# 1. Threaded Event Loop 
 # -----------------------------------------------------------------------------
 @st.cache_resource
 def get_event_loop():
@@ -69,7 +69,7 @@ def clear_generated_state():
     st.session_state.last_generated_filename = None
 
 # -----------------------------------------------------------------------------
-# 3. File Upload with Temp Storage (Best Practice from Code 2)
+# 3. File Upload with Temp Storage
 # -----------------------------------------------------------------------------
 with st.sidebar:
     # Add Logo

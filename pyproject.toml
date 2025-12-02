@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "job_assistant"
+version = "0.1.0"
+description = "AI-powered Job Search Assistant"
+dependencies = [
+    "streamlit",
+    "mcp",
+    "openai",
+    "python-dotenv",
+    "python-docx",
+    "python-jobspy",
+    "slack_bolt",
+    "aiohttp",
+    "beautifulsoup4",
+    "httpx",
+    "pandas",
+    "pypdf"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["server*", "client_streamlit*", "client_slack*"]

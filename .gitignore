@@ -5,3 +5,5 @@ __pycache__
 *.pyo
 
 InternDeploy.md
+*.txt
+job_assistant.egg-info/PKG-INFO

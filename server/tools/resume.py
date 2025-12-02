@@ -190,7 +190,8 @@ def create_cover_letter_docx(data: dict) -> str:
                 p.paragraph_format.line_spacing = 1.15
                 
         # Closing
-        doc.add_paragraph("Sincerely,").paragraph_format.space_after = Pt(12)
+        closing = data.get('closing', 'Sincerely,')
+        doc.add_paragraph(closing).paragraph_format.space_after = Pt(12)
         doc.add_paragraph(data.get('name', ''))
         
         # Save to temp file
@@ -299,6 +300,7 @@ def generate_cover_letter_tool(resume_text: str, job_description: str) -> str:
         "date": "{current_date}",
         "recipient": {{ "name": "...", "title": "...", "company": "...", "address": "..." }},
         "body_paragraphs": ["Para 1...", "Para 2...", "Para 3..."],
+        "closing": "Sincerely, OR Best regards,",
         "preview_markdown": "A brief markdown summary of the cover letter strategy."
     }}
     """
