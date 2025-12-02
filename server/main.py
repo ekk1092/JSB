@@ -46,4 +46,4 @@ def scrape_job_description(url: str) -> str:
     return scrape_job_description_tool(url)
 
 if __name__ == "__main__":
-   mcp.run(transport='stdio')
+   mcp.run(transport='sse')
