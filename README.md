@@ -29,7 +29,7 @@ The project consists of three main components:
 │   └── tools/              # Tool definitions (jobs, resume, etc.)
 ├── client_streamlit/       # Streamlit Web App
 │   ├── app.py              # Main application logic
-│   └── uncw_logo.png       # Sidebar logo
+│   ├── ds_logo.png         # Sidebar logo
 ├── client_slack/           # Slack Bot
 │   └── bot.py              # Bot logic
 ├── Dockerfile              # Multi-service Dockerfile
