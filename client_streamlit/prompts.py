@@ -50,7 +50,16 @@ def build_enhanced_system_prompt(resume_text=None, tools_list=None):
     - Note any skills to emphasize or gaps to address
 
     ### 4. DOCUMENT CREATION PHASE
-    When creating resumes or cover letters:
+    When creating resumes or cover letters always provide the document download:
+
+    When you generate resumes or cover letters:
+    - Make sure a button is always provided
+    - DO NOT mention file paths, download links, or temp file locations in your response
+    - DO NOT say "you can download using the link below" or similar phrases
+    - Simply confirm the document was created successfully
+    - The system will automatically provide a download button
+
+Example response: "I've created a tailored cover letter for the [Position] at [Company]. The document is ready for download using the button below."
 
     **RESUMES:**
     - Tailor to the SPECIFIC job posting

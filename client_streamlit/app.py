@@ -12,7 +12,7 @@ from mcp.client.stdio import stdio_client
 from openai import AzureOpenAI
 from dotenv import load_dotenv
 import io
-from server.prompts import build_enhanced_system_prompt
+from prompts import build_enhanced_system_prompt
 
 # Load environment variables
 load_dotenv()
@@ -81,7 +81,7 @@ with st.sidebar:
         st.warning("Logo not found")
 
     st.title("Resume Upload")
-    uploaded_file = st.file_uploader("Upload your Resume (TXT/MD/PDF/DOCX)", type=["txt", "md", "pdf", "docx", "doc"])
+    uploaded_file = st.file_uploader("Upload your Resume", type=["txt", "md", "pdf", "docx", "doc"])
     
     if uploaded_file:
         try:
@@ -121,7 +121,7 @@ with st.sidebar:
 # -----------------------------------------------------------------------------
 # Main Chat Interface
 # -----------------------------------------------------------------------------
-st.title("💼 AI Job Assistant")
+st.title("💼 Job Assistant")
 st.markdown("I can help you search for jobs, tailor your resume, and write cover letters.")
 
 # Display Chat History
@@ -280,8 +280,12 @@ if prompt := st.chat_input("What would you like to do?"):
                         st.markdown(content)
 
                 # 4. Display Final Response
-                st.markdown(final_response)
-                st.session_state.messages.append({"role": "assistant", "content": final_response})
+                import re
+                final_response_clean = re.sub(r'/tmp/[^\s]+\.docx', '', final_response)
+                final_response_clean = re.sub(r'file_path.*', '', final_response_clean, flags=re.MULTILINE)
+
+                st.markdown(final_response_clean)
+                st.session_state.messages.append({"role": "assistant", "content": final_response_clean})
                 
                 # 5. Show Download Buttons
                 if "last_generated_content" in st.session_state and st.session_state.last_generated_content:

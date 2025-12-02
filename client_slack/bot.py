@@ -43,7 +43,7 @@ deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
 user_context = {}
 
 import io
-from server.prompts import build_enhanced_system_prompt
+from client_streamlit.prompts import build_enhanced_system_prompt
 
 # build_enhanced_system_prompt is now imported from server.prompts
 
