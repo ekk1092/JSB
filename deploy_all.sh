@@ -64,5 +64,4 @@ MCP_URL=$(az containerapp show --name mcp-server --resource-group $RESOURCE_GROU
 
 echo "--------------------------------------------------"
 echo "Streamlit App: https://$STREAMLIT_URL"
-echo "MCP Server:    https://$MCP_URL/sse"
 echo "--------------------------------------------------"

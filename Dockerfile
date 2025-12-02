@@ -15,8 +15,14 @@ COPY requirements.txt .
 # Install python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy project configuration
+COPY pyproject.toml .
+
 # Copy the rest of the application code
 COPY . .
+
+# Install the project as a package
+RUN pip install .
 
 # Expose ports (Streamlit uses 8501 by default)
 EXPOSE 8501
