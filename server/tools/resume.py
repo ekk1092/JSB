@@ -2,6 +2,7 @@ import os
 import json
 import tempfile
 import traceback
+import base64
 from docx import Document
 from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -188,7 +189,7 @@ def create_cover_letter_docx(data: dict) -> str:
             for key in ["name", "title", "company", "address"]:
                 if recipient.get(key):
                     doc.add_paragraph(recipient[key]).paragraph_format.space_after = Pt(0)
-            doc.add_paragraph().paragraph_format.space_after = Pt(12)  # Extra space after recipient block
+            doc.add_paragraph().paragraph_format.space_after = Pt(12)
 
         # Body
         if data.get("body_paragraphs"):
@@ -214,7 +215,7 @@ def create_cover_letter_docx(data: dict) -> str:
 
 def tailor_resume_tool(resume_text: str, job_description: str) -> str:
     """
-    Tailors a resume and returns a JSON string with 'preview' (markdown) and 'file_path' (docx).
+    Tailors a resume and returns a JSON string with 'preview' (markdown) and 'file_content' (base64).
     """
     client = get_azure_client()
     deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
@@ -262,6 +263,18 @@ def tailor_resume_tool(resume_text: str, job_description: str) -> str:
 
         # Generate DOCX
         file_path = create_resume_docx(data)
+        
+        if not file_path:
+            return json.dumps({"error": "Failed to create resume document"})
+
+        # Read file and encode as base64
+        with open(file_path, "rb") as f:
+            file_bytes = f.read()
+        
+        file_content_b64 = base64.b64encode(file_bytes).decode('utf-8')
+        
+        # Clean up temp file
+        os.unlink(file_path)
 
         # Generate dynamic filename
         safe_name = sanitize_filename(data.get("name", "Candidate"))
@@ -270,7 +283,7 @@ def tailor_resume_tool(resume_text: str, job_description: str) -> str:
 
         result = {
             "preview": data.get("preview_markdown", "Resume tailored successfully."),
-            "file_path": file_path,
+            "file_content": file_content_b64,
             "filename": filename,
         }
         return json.dumps(result)
@@ -332,7 +345,7 @@ def extract_job_metadata(job_description: str) -> dict:
 
 def generate_cover_letter_tool(resume_text: str, job_description: str) -> str:
     """
-    Generates a cover letter and returns a JSON string with 'preview' (markdown) and 'file_path' (docx).
+    Generates a cover letter and returns a JSON string with 'preview' (markdown) and 'file_content' (base64).
     Company name and location are extracted once and then enforced.
     """
     client = get_azure_client()
@@ -413,6 +426,18 @@ def generate_cover_letter_tool(resume_text: str, job_description: str) -> str:
 
         # Generate DOCX
         file_path = create_cover_letter_docx(data)
+        
+        if not file_path:
+            return json.dumps({"error": "Failed to create cover letter document"})
+
+        # Read file and encode as base64
+        with open(file_path, "rb") as f:
+            file_bytes = f.read()
+        
+        file_content_b64 = base64.b64encode(file_bytes).decode('utf-8')
+        
+        # Clean up temp file
+        os.unlink(file_path)
 
         # Generate dynamic filename
         safe_name = sanitize_filename(data.get("name", "Candidate"))
@@ -423,7 +448,7 @@ def generate_cover_letter_tool(resume_text: str, job_description: str) -> str:
 
         result = {
             "preview": data.get("preview_markdown", "Cover letter generated successfully."),
-            "file_path": file_path,
+            "file_content": file_content_b64,
             "filename": filename,
         }
         return json.dumps(result)

@@ -12,6 +12,7 @@ from mcp.client.stdio import stdio_client
 from openai import AzureOpenAI
 from dotenv import load_dotenv
 import io
+import base64
 from prompts import build_enhanced_system_prompt
 
 # Load environment variables
@@ -259,10 +260,9 @@ if prompt := st.chat_input("What would you like to do?"):
                             if "preview" in data:
                                 st.markdown(data["preview"])
                             
-                            if "file_path" in data:
-                                # Read the generated file
-                                with open(data["file_path"], "rb") as f:
-                                    file_bytes = f.read()
+                            if "file_content" in data:
+                                # Decode base64 content
+                                file_bytes = base64.b64decode(data["file_content"])
                                 
                                 st.session_state.last_generated_content = file_bytes
                                 st.session_state.last_generated_type = "resume" if output['name'] == "tailor_resume" else "cover_letter"
