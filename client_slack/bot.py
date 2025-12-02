@@ -45,7 +45,11 @@ user_context = {}
 import io
 from server.prompts import build_enhanced_system_prompt
 
-# build_enhanced_system_prompt is now imported from server.prompts
+# Suppress pypdf warnings
+logging.getLogger("pypdf").setLevel(logging.ERROR)
+
+# Add project root to sys.path to allow importing from server.prompts
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 async def download_file(file_url, token):
     headers = {"Authorization": f"Bearer {token}"}

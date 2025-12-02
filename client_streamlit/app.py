@@ -12,6 +12,11 @@ from mcp.client.stdio import stdio_client
 from openai import AzureOpenAI
 from dotenv import load_dotenv
 import io
+import logging
+
+# Suppress pypdf warnings (harmless "Ignoring wrong pointing object" logs)
+logging.getLogger("pypdf").setLevel(logging.ERROR)
+
 from server.prompts import build_enhanced_system_prompt
 
 # Load environment variables
@@ -48,6 +53,8 @@ def get_event_loop():
 # 2. Enhanced System Prompt (Imported from Shared Logic)
 # -----------------------------------------------------------------------------
 # build_enhanced_system_prompt is now imported from server.prompts
+
+# Add project root to sys.path to allow importing from server.prompts
 
 # -----------------------------------------------------------------------------
 # Session State Initialization
