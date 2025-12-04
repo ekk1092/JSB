@@ -107,7 +107,7 @@ with st.sidebar:
                     text += para.text + "\n"
 
             st.session_state.resume_text = text
-            st.success("Resume uploaded successfully!")
+            st.success("✅ Resume uploaded!")
 
         except Exception as e:
             st.error(f"Error: {e}")
