@@ -5,7 +5,7 @@ source ./deploy_utils.sh
 
 RESOURCE_GROUP="${RESOURCE_GROUP:-edemjob-assistant-rg}"
 ACR_NAME="${ACR_NAME:-jobassistantacr}"
-KEEP_IMAGES=0
+KEEP_IMAGES=5
 
 echo -e "${YELLOW}==================================================${NC}"
 echo -e "${YELLOW}   🧹 Starting Azure Cleanup...                   ${NC}"

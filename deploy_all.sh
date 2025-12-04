@@ -66,9 +66,9 @@ echo ""
 # 5. Retrieve and Display URLs
 log "Retrieving application URLs..."
 
-echo -e "${YELLOW}==================================================${NC}"
-echo -e "${YELLOW}   ✅ Deployment Complete!                        ${NC}"
-echo -e "${YELLOW}==================================================${NC}"
+echo -e "${GREEN}==================================================${NC}"
+echo -e "${GREEN}   ✅ Deployment Complete!                        ${NC}"
+echo -e "${GREEN}==================================================${NC}"
 
 # Get Streamlit URL
 STREAMLIT_URL=$(az containerapp show --name streamlit-client --resource-group $RESOURCE_GROUP --query properties.configuration.ingress.fqdn -o tsv)
