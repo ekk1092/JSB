@@ -38,9 +38,4 @@ def generate_cover_letter(resume_text: str, job_description: str) -> str:
 
 
 if __name__ == "__main__":
-    import os
-    transport = os.getenv("MCP_TRANSPORT", "sse")
-    if transport == "stdio":
-        mcp.run(transport='stdio')
-    else:
-        mcp.run(transport='sse')
+    mcp.run(transport='sse')
