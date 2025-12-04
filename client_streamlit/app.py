@@ -250,6 +250,9 @@ if prompt := st.chat_input("How can I help you?"):
                         import json
                         data = json.loads(content)
 
+                        if "error" in data:
+                            st.error(f"Generation failed: {data['error']}")
+                        
                         if "preview" in data:
                             st.markdown(data["preview"])
 
@@ -260,6 +263,20 @@ if prompt := st.chat_input("How can I help you?"):
                                 "resume" if output["name"] == "tailor_resume" else "cover_letter"
                             )
                             st.session_state.last_generated_filename = data.get("filename")
+                            
+                            # Ensure the assistant's response is added to chat history before rerun
+                            import re
+                            # Remove raw paths
+                            clean = re.sub(r"/tmp/[^\s]+\.docx", "", final_response)
+                            # Remove markdown links to docx files
+                            clean = re.sub(r"\[.*?\]\(.*\.docx\)", "", clean)
+                            # Remove trailing "Download" text if it remains
+                            clean = clean.replace("Download Cover Letter", "").replace("Download Resume", "")
+                            # Ensure direction points to sidebar
+                            clean = clean.replace("button below", "button in the sidebar")
+                            
+                            st.session_state.messages.append({"role": "assistant", "content": clean})
+                            
                             st.rerun()
 
                     elif output["name"] not in ["search_jobs", "scrape_job_description"]:
