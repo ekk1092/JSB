@@ -4,34 +4,19 @@
 RESOURCE_GROUP="${RESOURCE_GROUP:-edemjob-assistant-rg}"
 ACR_NAME="${ACR_NAME:-jobassistantacr}"
 IMAGE_NAME="${IMAGE_NAME:-job-assistant:latest}"
-
-# Colors for output
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
-
-# Helper function for logging with timestamps
-log() {
-    echo -e "${BLUE}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1"
-}
-
-success() {
-    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')] SUCCESS:${NC} $1"
-}
-
-error() {
-    echo -e "${RED}[$(date +'%Y-%m-%d %H:%M:%S')] ERROR:${NC} $1"
-}
+GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+# Source utility functions
+source ./deploy_utils.sh
 
 echo -e "${YELLOW}==================================================${NC}"
 echo -e "${YELLOW}   🚀 Starting Deployment to Azure...             ${NC}"
 echo -e "${YELLOW}==================================================${NC}"
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] --- New Deployment Started (Branch: $GIT_BRANCH) ---" >> "$LOG_FILE"
 log "Configuration:"
 log "  - Resource Group: ${YELLOW}$RESOURCE_GROUP${NC}"
 log "  - ACR Name:       ${YELLOW}$ACR_NAME${NC}"
 log "  - Image Name:     ${YELLOW}$IMAGE_NAME${NC}"
+log "  - Git Branch:     ${YELLOW}$GIT_BRANCH${NC}"
 echo ""
 
 # 1. Build Docker Image in ACR

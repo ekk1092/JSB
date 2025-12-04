@@ -5,3 +5,4 @@ __pycache__
 *.pyo
 
 InternDeploy.md
+*.log
