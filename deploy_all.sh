@@ -43,7 +43,7 @@ echo ""
 
 # 3. Update Streamlit Client
 log "[3/4] Updating Streamlit Client..."
-az containerapp update --name streamlit-client --resource-group $RESOURCE_GROUP --image $ACR_NAME.azurecr.io/$IMAGE_NAME
+az containerapp update --name streamlit-client --resource-group $RESOURCE_GROUP --image $ACR_NAME.azurecr.io/$IMAGE_NAME --set-env-vars STREAMLIT_SERVER_ENABLE_CORS=false STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=false
 
 if [ $? -ne 0 ]; then
     error "Failed to update Streamlit Client."

@@ -71,9 +71,20 @@ def clear_generated_state():
 # SIDEBAR — UPLOAD + PERSISTENT DOWNLOAD
 # -----------------------------------------------------------------------------
 with st.sidebar:
-    current_dir = Path(__file__).parent
-    logo_path = current_dir / "uncw_logo.png"
-    if logo_path.exists():
+    # Robust logo path resolution
+    possible_paths = [
+        Path(__file__).parent / "uncw_logo.png",                # When run directly
+        Path.cwd() / "client_streamlit" / "uncw_logo.png",      # When run from root
+        Path("uncw_logo.png")                                   # Fallback
+    ]
+    
+    logo_path = None
+    for p in possible_paths:
+        if p.exists():
+            logo_path = p
+            break
+            
+    if logo_path:
         st.image(str(logo_path), width='stretch')
 
     st.title("Resume Upload")
