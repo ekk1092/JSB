@@ -1,57 +1,88 @@
 #!/bin/bash
 
 # Configuration
-RESOURCE_GROUP="edemjob-assistant-rg"
-ACR_NAME="jobassistantacr"
-IMAGE_NAME="job-assistant:latest"
+RESOURCE_GROUP="${RESOURCE_GROUP:-edemjob-assistant-rg}"
+ACR_NAME="${ACR_NAME:-jobassistantacr}"
+IMAGE_NAME="${IMAGE_NAME:-job-assistant:latest}"
+GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+# Source utility functions
+source ./deploy_utils.sh
 
-echo "=================================================="
-echo "Starting Deployment to Azure..."
-echo "Resource Group: $RESOURCE_GROUP"
-echo "ACR Name: $ACR_NAME"
-echo "=================================================="
+echo -e "${YELLOW}==================================================${NC}"
+echo -e "${YELLOW}   🚀 Starting Deployment to Azure...             ${NC}"
+echo -e "${YELLOW}==================================================${NC}"
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] --- New Deployment Started (Branch: $GIT_BRANCH) ---" >> "$LOG_FILE"
+log "Configuration:"
+log "  - Resource Group: ${YELLOW}$RESOURCE_GROUP${NC}"
+log "  - ACR Name:       ${YELLOW}$ACR_NAME${NC}"
+log "  - Image Name:     ${YELLOW}$IMAGE_NAME${NC}"
+log "  - Git Branch:     ${YELLOW}$GIT_BRANCH${NC}"
+echo ""
 
 # 1. Build Docker Image in ACR
-echo ""
-echo "[1/4] Building Docker image in Azure Container Registry..."
+log "[1/4] Building Docker image in Azure Container Registry..."
 az acr build --registry $ACR_NAME --image $IMAGE_NAME --platform linux/amd64 .
 
 if [ $? -ne 0 ]; then
-    echo "Error: Docker build failed."
+    error "Docker build failed."
     exit 1
 fi
+success "Docker image built successfully."
+echo ""
 
 # 2. Update MCP Server
-echo ""
-echo "[2/4] Updating MCP Server..."
-az containerapp update --name mcp-server --resource-group $RESOURCE_GROUP --image $ACR_NAME.azurecr.io/$IMAGE_NAME
+log "[2/4] Updating MCP Server..."
+az containerapp update --name mcp-server --resource-group $RESOURCE_GROUP --image $ACR_NAME.azurecr.io/$IMAGE_NAME --set-env-vars MCP_TRANSPORT=sse
 
 if [ $? -ne 0 ]; then
-    echo "Error: Failed to update MCP Server."
+    error "Failed to update MCP Server."
     exit 1
 fi
+success "MCP Server updated."
+echo ""
 
 # 3. Update Streamlit Client
-echo ""
-echo "[3/4] Updating Streamlit Client..."
-az containerapp update --name streamlit-client --resource-group $RESOURCE_GROUP --image $ACR_NAME.azurecr.io/$IMAGE_NAME
+log "[3/4] Updating Streamlit Client..."
+az containerapp update --name streamlit-client --resource-group $RESOURCE_GROUP --image $ACR_NAME.azurecr.io/$IMAGE_NAME --set-env-vars STREAMLIT_SERVER_ENABLE_CORS=false STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=false
 
 if [ $? -ne 0 ]; then
-    echo "Error: Failed to update Streamlit Client."
+    error "Failed to update Streamlit Client."
     exit 1
 fi
+success "Streamlit Client updated."
+echo ""
 
 # 4. Update Slack Bot
-echo ""
-echo "[4/4] Updating Slack Bot..."
+log "[4/4] Updating Slack Bot..."
 az containerapp update --name slack-bot --resource-group $RESOURCE_GROUP --image $ACR_NAME.azurecr.io/$IMAGE_NAME
 
 if [ $? -ne 0 ]; then
-    echo "Error: Failed to update Slack Bot."
+    error "Failed to update Slack Bot."
     exit 1
+fi
+success "Slack Bot updated."
+echo ""
+
+# 5. Retrieve and Display URLs
+log "Retrieving application URLs..."
+
+echo -e "${GREEN}==================================================${NC}"
+echo -e "${GREEN}   ✅ Deployment Complete!                        ${NC}"
+echo -e "${GREEN}==================================================${NC}"
+
+# Get Streamlit URL
+STREAMLIT_URL=$(az containerapp show --name streamlit-client --resource-group $RESOURCE_GROUP --query properties.configuration.ingress.fqdn -o tsv)
+if [ -n "$STREAMLIT_URL" ]; then
+    echo -e "📱 ${GREEN}Streamlit App:${NC} https://$STREAMLIT_URL"
+else
+    echo -e "📱 ${RED}Streamlit App:${NC} URL not found (check ingress settings)"
+fi
+
+# Get MCP Server URL (useful for debugging)
+MCP_URL=$(az containerapp show --name mcp-server --resource-group $RESOURCE_GROUP --query properties.configuration.ingress.fqdn -o tsv)
+if [ -n "$MCP_URL" ]; then
+    echo -e "⚙️  ${GREEN}MCP Server:${NC}    https://$MCP_URL"
 fi
 
 echo ""
-echo "=================================================="
-echo "Deployment Complete! 🚀"
-echo "=================================================="
+log "Deployment finished successfully."

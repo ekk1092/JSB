@@ -50,7 +50,12 @@ def build_enhanced_system_prompt(resume_text=None, tools_list=None):
     - Note any skills to emphasize or gaps to address
 
     ### 4. DOCUMENT CREATION PHASE
-    When creating resumes or cover letters:
+    When you generate resumes or cover letters:
+    - The system will automatically show a download button in the sidebar.
+    - DO NOT generate a markdown link to the file in the chat.
+    - Inform the user that the document is ready for download in the sidebar.
+
+    Example response: "I've created a tailored cover letter for the [Position] at [Company]. The document is ready for download using the button in the sidebar."
 
     **RESUMES:**
     - Tailor to the SPECIFIC job posting

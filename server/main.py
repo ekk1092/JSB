@@ -11,12 +11,12 @@ logging.basicConfig(level=logging.INFO)
 mcp = FastMCP("Job Assistant", host="0.0.0.0", port=8080)
 
 @mcp.tool()
-def search_jobs(search_term: str, location: str = "remote", results_wanted: int = 10) -> str:
+def search_jobs(search_term: str, location: str = "", results_wanted: int = 10) -> list:
     """
     Search for jobs on various platforms (Indeed, LinkedIn, etc.).
-    Returns a CSV string of job listings, INCLUDING the full job description.
+    Returns a list of job dictionaries with title, company, location, job_url, and description.
     
-    IMPORTANT: The result ALREADY contains the job description. DO NOT call scrape_job_description on the URLs returned by this tool, as it will fail. Use the 'description' column from the CSV directly.
+    IMPORTANT: The result ALREADY contains the job description in the 'description' field.
     """
     return search_jobs_tool(search_term, location, results_wanted)
 
@@ -37,13 +37,5 @@ def generate_cover_letter(resume_text: str, job_description: str) -> str:
     return generate_cover_letter_tool(resume_text, job_description)
 
 
-@mcp.tool()
-def scrape_job_description(url: str) -> str:
-    """
-    Scrape the job description from a URL.
-    Useful when the user provides a link to a job posting (e.g. Indeed, LinkedIn).
-    """
-    return scrape_job_description_tool(url)
-
 if __name__ == "__main__":
-   mcp.run(transport='stdio')
+    mcp.run(transport='sse')
