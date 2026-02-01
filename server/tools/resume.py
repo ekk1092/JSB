@@ -212,6 +212,10 @@ def tailor_resume_tool(resume_text: str, job_description: str) -> str:
     client = get_azure_client()
     deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
 
+    # Extract company metadata for filename
+    job_meta = extract_job_metadata(job_description)
+    company_name = job_meta.get("company_name")
+
     prompt = f"""
     You are an expert career coach and resume writer.
     
@@ -271,7 +275,12 @@ def tailor_resume_tool(resume_text: str, job_description: str) -> str:
         # Generate dynamic filename
         safe_name = sanitize_filename(data.get("name", "Candidate"))
         date_str = datetime.now().strftime("%Y-%m-%d")
-        filename = f"Resume_{safe_name}_{date_str}.docx"
+        
+        if company_name:
+            safe_company = sanitize_filename(company_name)
+            filename = f"Resume_{safe_name}_{safe_company}_{date_str}.docx"
+        else:
+            filename = f"Resume_{safe_name}_{date_str}.docx"
 
         result = {
             "preview": data.get("preview_markdown", "Resume tailored successfully."),
