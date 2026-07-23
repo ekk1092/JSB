@@ -26,7 +26,7 @@ def search_jobs_tool(query: str, location: str = "", limit: int = 10):
     except Exception as exc:
         message = str(exc).lower()
         if "ziprecruiter" in message or "forbidden" in message or "403" in message:
-            logger.warning("ZipRecruiter blocked the request; retrying without it.")
+            logger.warning(f"Job search error: {exc}. Retrying without ZipRecruiter...")
             jobs = scrape_jobs(
                 site_name=[site for site in site_names if site != "zip_recruiter"],
                 search_term=query,
@@ -34,7 +34,11 @@ def search_jobs_tool(query: str, location: str = "", limit: int = 10):
                 results_wanted=limit
             )
         else:
+            logger.error(f"Failed to scrape jobs for query '{query}': {exc}")
             raise
+
+    if jobs is None or jobs.empty:
+        return []
 
     return jobs.to_dict(orient="records")
 

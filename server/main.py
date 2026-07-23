@@ -1,12 +1,26 @@
+import sys
+import os
+import logging
+
+# Ensure server directory is in sys.path
+SERVER_DIR = os.path.dirname(os.path.abspath(__file__))
+if SERVER_DIR not in sys.path:
+    sys.path.insert(0, SERVER_DIR)
+
 from mcp.server.fastmcp import FastMCP
 from tools.jobs import search_jobs_tool
 from tools.resume import tailor_resume_tool, generate_cover_letter_tool
 from tools.web_scraper import scrape_job_description_tool
-import logging
-import os
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging to sys.stderr and backend.log
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stderr),
+        logging.FileHandler(os.path.join(SERVER_DIR, "..", "backend.log"), mode="a", encoding="utf-8")
+    ]
+)
 
 # Create the MCP Server
 mcp = FastMCP("Job Assistant", host="0.0.0.0", port=8080)

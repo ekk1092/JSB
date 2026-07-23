@@ -43,6 +43,11 @@ def get_event_loop():
     thread.start()
     return loop
 
+def run_async(coro):
+    loop = get_event_loop()
+    future = asyncio.run_coroutine_threadsafe(coro, loop)
+    return future.result()
+
 # -----------------------------------------------------------------------------
 # Session State Initialization
 # -----------------------------------------------------------------------------
@@ -84,6 +89,7 @@ def build_model_messages(system_prompt: str, chat_messages: list[dict], max_turn
 
 
 def parse_job_search_request(user_input: str) -> dict[str, str]:
+    import re
     lowered = user_input.lower().strip()
     location_markers = [" in ", " near ", " around "]
     location = ""
@@ -96,10 +102,23 @@ def parse_job_search_request(user_input: str) -> dict[str, str]:
             location = user_input[idx + len(marker):].strip().rstrip("?.!,")
             break
 
-    search_text = search_text.replace("give me", "").replace("show me", "").replace("find", "").strip(" ,?.!")
+    cleaned = search_text
+    fillers = [
+        r"\bhelp me (find|finding|search|look for)\b",
+        r"\b(find|search|look)\s+(me|for)?\b",
+        r"\b(give me|show me)\b",
+        r"\b(a|the)?\s*jobs?\b",
+        r"\bin\b",
+        r"\bfield\b",
+        r"\brole\b",
+    ]
+    for pattern in fillers:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,?.!")
 
     return {
-        "search_term": search_text or user_input.strip(),
+        "search_term": cleaned if len(cleaned) > 1 else search_text,
         "location": location,
     }
 
@@ -221,6 +240,26 @@ with st.sidebar:
     else:
         st.caption("No generated documents yet.")
 
+    # -------------------------------------------------------------
+    # 🪵 BACKEND LOGS SECTION
+    # -------------------------------------------------------------
+    st.markdown("---")
+    st.subheader("🖥️ Backend Logs")
+    with st.expander("View Server Logs"):
+        log_file = Path(__file__).parent.parent / "backend.log"
+        if log_file.exists():
+            log_content = log_file.read_text(encoding="utf-8")
+            if log_content.strip():
+                # Display last 50 lines of backend.log
+                recent_logs = "\n".join(log_content.splitlines()[-50:])
+                st.code(recent_logs, language="text")
+            else:
+                st.caption("Log file is empty.")
+        else:
+            st.caption("No logs recorded yet.")
+        if st.button("Refresh Logs"):
+            st.rerun()
+
 # -----------------------------------------------------------------------------
 # MAIN CHAT UI
 # -----------------------------------------------------------------------------
@@ -235,16 +274,28 @@ for message in st.session_state.messages:
 # -----------------------------------------------------------------------------
 # ASYNC LOGIC
 # -----------------------------------------------------------------------------
-async def run_chat_logic(user_input):
+async def run_chat_logic(user_input, chat_messages, resume_text):
     mcp_server_url = os.getenv("MCP_SERVER_URL")
 
     if mcp_server_url:
         from mcp.client.sse import sse_client
-        client_context = sse_client(mcp_server_url)
+        url = mcp_server_url if mcp_server_url.endswith("/sse") else f"{mcp_server_url.rstrip('/')}/sse"
+        client_context = sse_client(url)
     else:
+        server_script = Path(__file__).parent.parent / "server" / "main.py"
+        if not server_script.exists():
+            server_script = Path("server/main.py")
+
+        project_root = Path(__file__).parent.parent
+        venv_python = project_root / ".venv" / "bin" / "python"
+        if not venv_python.exists():
+            venv_python = project_root / ".venv" / "Scripts" / "python.exe"
+
+        python_executable = str(venv_python.absolute()) if venv_python.exists() else sys.executable
+
         server_params = StdioServerParameters(
-            command=sys.executable,
-            args=["server/main.py"],
+            command=python_executable,
+            args=[str(server_script.resolve())],
             env={**os.environ.copy(), "MCP_TRANSPORT": "stdio"}
         )
         client_context = stdio_client(server_params)
@@ -264,14 +315,14 @@ async def run_chat_logic(user_input):
             } for tool in tools.tools]
 
             include_resume_context = should_include_resume_context(user_input)
-            resume_context = st.session_state.resume_text if include_resume_context else None
+            resume_context = resume_text if include_resume_context else None
 
             system_prompt = build_enhanced_system_prompt(
                 resume_context,
                 openai_tools
             )
 
-            messages = build_model_messages(system_prompt, st.session_state.messages)
+            messages = build_model_messages(system_prompt, chat_messages)
 
             search_intent = any(
                 phrase in user_input.lower()
@@ -370,7 +421,13 @@ if prompt := st.chat_input("How can I help you?"):
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                final_response, tool_outputs = asyncio.run(run_chat_logic(prompt))
+                final_response, tool_outputs = run_async(
+                    run_chat_logic(
+                        prompt,
+                        list(st.session_state.messages),
+                        st.session_state.get("resume_text")
+                    )
+                )
 
                 for output in tool_outputs:
                     content = output["content"]

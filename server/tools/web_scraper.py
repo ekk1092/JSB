@@ -22,7 +22,7 @@ def scrape_job_description_tool(url: str) -> str:
     }
     
     try:
-        with httpx.Client(follow_redirects=True, headers=headers) as client:
+        with httpx.Client(follow_redirects=True, headers=headers, timeout=10.0) as client:
             response = client.get(url)
             response.raise_for_status()
             
