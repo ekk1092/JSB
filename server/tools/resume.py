@@ -6,18 +6,17 @@ import base64
 from docx import Document
 from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from openai import AzureOpenAI
+from openai import OpenAI
 from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
 
 
-def get_azure_client():
-    return AzureOpenAI(
-        api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-        api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
-        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+def get_nvidia_client():
+    return OpenAI(
+        api_key=os.getenv("NGC_API_KEY"),
+        base_url="https://integrate.api.nvidia.com/v1",
     )
 
 
@@ -209,8 +208,8 @@ def tailor_resume_tool(resume_text: str, job_description: str) -> str:
     """
     Tailors a resume and returns a JSON string with 'preview' (markdown) and 'file_content' (base64).
     """
-    client = get_azure_client()
-    deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
+    client = get_nvidia_client()
+    model_name = os.getenv("NVIDIA_MODEL", "nvidia/nemotron-mini-4b-instruct")
 
     # Extract company metadata for filename
     job_meta = extract_job_metadata(job_description)
@@ -245,7 +244,7 @@ def tailor_resume_tool(resume_text: str, job_description: str) -> str:
     """
 
     response = client.chat.completions.create(
-        model=deployment_name,
+        model=model_name,
         messages=[
             {"role": "system", "content": "You are a helpful assistant that outputs JSON."},
             {"role": "user", "content": prompt},
@@ -298,8 +297,8 @@ def extract_job_metadata(job_description: str) -> dict:
     Extracts company_name and company_location from the job description
     using a small, constrained JSON schema.
     """
-    client = get_azure_client()
-    deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
+    client = get_nvidia_client()
+    model_name = os.getenv("NVIDIA_MODEL", "nvidia/nemotron-mini-4b-instruct")
 
     prompt = f"""
     You are an information extraction assistant.
@@ -319,7 +318,7 @@ def extract_job_metadata(job_description: str) -> dict:
     """
 
     resp = client.chat.completions.create(
-        model=deployment_name,
+        model=model_name,
         messages=[
             {"role": "system", "content": "You are a helpful assistant that outputs ONLY valid JSON."},
             {"role": "user", "content": prompt},
@@ -349,8 +348,8 @@ def generate_cover_letter_tool(resume_text: str, job_description: str) -> str:
     Generates a cover letter and returns a JSON string with 'preview' (markdown) and 'file_content' (base64).
     Company name and location are extracted once and then enforced.
     """
-    client = get_azure_client()
-    deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
+    client = get_nvidia_client()
+    model_name = os.getenv("NVIDIA_MODEL", "nvidia/nemotron-mini-4b-instruct")
 
     current_date = datetime.now().strftime("%B %d, %Y")
 
@@ -405,7 +404,7 @@ def generate_cover_letter_tool(resume_text: str, job_description: str) -> str:
     """
 
     response = client.chat.completions.create(
-        model=deployment_name,
+        model=model_name,
         messages=[
             {"role": "system", "content": "You are a helpful assistant that outputs JSON only."},
             {"role": "user", "content": prompt},

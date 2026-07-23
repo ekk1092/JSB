@@ -1,6 +1,6 @@
-# Azure Container Apps Deployment Guide
+# Deployment Guide
 
-This guide provides a step-by-step process to deploy the Job Assistant application (MCP Server, Streamlit Client, and Slack Bot) to Azure Container Apps.
+This guide provides a step-by-step process to deploy the Job Assistant application (MCP Server and Streamlit Client) to Azure Container Apps.
 
 ## Prerequisites
 
@@ -19,15 +19,10 @@ LOCATION="centralus"
 ACR_NAME="jobassistantacr"
 ENV_NAME="job-assistant-env"
 
-# OpenAI Secrets
-AZURE_OPENAI_API_KEY="your_openai_api_key"
-AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com/"
-AZURE_OPENAI_API_VERSION="2025-01-01-preview"
-AZURE_OPENAI_DEPLOYMENT_NAME="gpt-4.1"
+# NVIDIA Secrets
+NGC_API_KEY="your_nvidia_api_key"
+NVIDIA_MODEL="nvidia/nemotron-mini-4b-instruct"
 
-# Slack Secrets
-SLACK_BOT_TOKEN="xoxb-your-bot-token"
-SLACK_APP_TOKEN="xapp-your-app-token"
 ```
 
 ## 2. Create Azure Resources
@@ -73,10 +68,6 @@ az containerapp create \
   --registry-username $ACR_NAME \
   --registry-password $REGISTRY_PASSWORD \
   --env-vars \
-    AZURE_OPENAI_API_KEY=$AZURE_OPENAI_API_KEY \
-    AZURE_OPENAI_ENDPOINT=$AZURE_OPENAI_ENDPOINT \
-    AZURE_OPENAI_API_VERSION=$AZURE_OPENAI_API_VERSION \
-    AZURE_OPENAI_DEPLOYMENT_NAME=$AZURE_OPENAI_DEPLOYMENT_NAME \
     MCP_TRANSPORT="sse" \
   --command "python" "server/main.py"
 ```
@@ -106,37 +97,9 @@ az containerapp create \
   --registry-password $REGISTRY_PASSWORD \
   --env-vars \
     MCP_SERVER_URL=$MCP_SERVER_URL \
-    AZURE_OPENAI_API_KEY=$AZURE_OPENAI_API_KEY \
-    AZURE_OPENAI_ENDPOINT=$AZURE_OPENAI_ENDPOINT \
-    AZURE_OPENAI_API_VERSION=$AZURE_OPENAI_API_VERSION \
-    AZURE_OPENAI_DEPLOYMENT_NAME=$AZURE_OPENAI_DEPLOYMENT_NAME \
     STREAMLIT_SERVER_PORT=8501 \
     STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
   --command "streamlit" "run" "client_streamlit/app.py"
-```
-
-## 6. Deploy Slack Bot
-
-Deploy the Slack bot using Socket Mode (no ingress needed).
-
-```bash
-az containerapp create \
-  --name slack-bot \
-  --resource-group $RESOURCE_GROUP \
-  --environment $ENV_NAME \
-  --image $ACR_NAME.azurecr.io/job-assistant:latest \
-  --registry-server $ACR_NAME.azurecr.io \
-  --registry-username $ACR_NAME \
-  --registry-password $REGISTRY_PASSWORD \
-  --env-vars \
-    MCP_SERVER_URL=$MCP_SERVER_URL \
-    SLACK_BOT_TOKEN=$SLACK_BOT_TOKEN \
-    SLACK_APP_TOKEN=$SLACK_APP_TOKEN \
-    AZURE_OPENAI_API_KEY=$AZURE_OPENAI_API_KEY \
-    AZURE_OPENAI_ENDPOINT=$AZURE_OPENAI_ENDPOINT \
-    AZURE_OPENAI_API_VERSION=$AZURE_OPENAI_API_VERSION \
-    AZURE_OPENAI_DEPLOYMENT_NAME=$AZURE_OPENAI_DEPLOYMENT_NAME \
-  --command "python" "client_slack/bot.py"
 ```
 
 ## Troubleshooting
@@ -155,6 +118,3 @@ After deployment, verify the application:
     -   Type "what can you do?" in the chat.
     -   Confirm the assistant responds correctly (this verifies the SSE connection).
 
-2.  **Slack Bot**:
-    -   Message the bot in Slack.
-    -   Upload a resume and confirm it is processed.

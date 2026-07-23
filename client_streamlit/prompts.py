@@ -25,7 +25,8 @@ def build_enhanced_system_prompt(resume_text=None, tools_list=None):
     - What LEVEL? (Intern, Entry-level, Mid-level, Senior)
     - Preferred LOCATION or remote preference
 
-    Ask clarifying questions! Don't make assumptions.
+    Ask clarifying questions only when the request is missing important details.
+    If the user explicitly asks to show or find jobs and gives a role and location, search immediately.
 
     ### 2. JOB SEARCH PHASE
     Use the job search tools to find positions matching their GOALS (not just experience):
@@ -33,6 +34,9 @@ def build_enhanced_system_prompt(resume_text=None, tools_list=None):
     - Consider various related titles (e.g., "Data Scientist", "ML Engineer", "Applied Scientist")
     - Search across multiple locations if they're flexible
     - Cast a wide net initially, then refine based on feedback
+
+    For explicit requests like "show me jobs", "find jobs", or "search jobs", call the job search tool right away.
+    Do not output the raw tool call JSON to the user.
 
     Present findings clearly:
     - Job title and company

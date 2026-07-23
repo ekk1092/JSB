@@ -3,6 +3,7 @@ from tools.jobs import search_jobs_tool
 from tools.resume import tailor_resume_tool, generate_cover_letter_tool
 from tools.web_scraper import scrape_job_description_tool
 import logging
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -38,4 +39,5 @@ def generate_cover_letter(resume_text: str, job_description: str) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run(transport='sse')
+    transport = os.getenv("MCP_TRANSPORT", "sse")
+    mcp.run(transport=transport)

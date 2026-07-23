@@ -5,14 +5,16 @@ import sys
 import threading
 import tempfile
 import uuid
+import ast
 from pathlib import Path
 from datetime import datetime
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from openai import AzureOpenAI
+from openai import OpenAI
 from dotenv import load_dotenv
 import io
 import base64
+import json
 from prompts import build_enhanced_system_prompt
 
 # Load environment variables
@@ -21,13 +23,12 @@ load_dotenv()
 # Page configuration
 st.set_page_config(page_title="Job Assistant", layout="wide")
 
-# Initialize Azure OpenAI Client
-client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
+# Initialize NVIDIA OpenAI-Compatible Client
+client = OpenAI(
+    api_key=os.getenv("NGC_API_KEY"),
+    base_url="https://integrate.api.nvidia.com/v1",
 )
-deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
+model_name = os.getenv("NVIDIA_MODEL", "meta/llama-3.1-70b-instruct")
 
 # -----------------------------------------------------------------------------
 # 1. Threaded Event Loop
@@ -66,6 +67,83 @@ def clear_generated_state():
     st.session_state.last_generated_content = None
     st.session_state.last_generated_type = None
     st.session_state.last_generated_filename = None
+
+
+def should_include_resume_context(user_input: str) -> bool:
+    lowered = user_input.lower()
+    return any(
+        phrase in lowered
+        for phrase in ["resume", "cover letter", "tailor", "rewrite my resume", "generate a resume"]
+    )
+
+
+def build_model_messages(system_prompt: str, chat_messages: list[dict], max_turns: int = 4) -> list[dict]:
+    # Keep only the most recent turns so the prompt stays under the model's 4k context window.
+    recent_messages = chat_messages[-(max_turns * 2):]
+    return [{"role": "system", "content": system_prompt}] + recent_messages
+
+
+def parse_job_search_request(user_input: str) -> dict[str, str]:
+    lowered = user_input.lower().strip()
+    location_markers = [" in ", " near ", " around "]
+    location = ""
+    search_text = user_input.strip()
+
+    for marker in location_markers:
+        if marker in lowered:
+            idx = lowered.rfind(marker)
+            search_text = user_input[:idx].strip()
+            location = user_input[idx + len(marker):].strip().rstrip("?.!,")
+            break
+
+    search_text = search_text.replace("give me", "").replace("show me", "").replace("find", "").strip(" ,?.!")
+
+    return {
+        "search_term": search_text or user_input.strip(),
+        "location": location,
+    }
+
+
+def parse_job_search_results(content: str) -> list[dict]:
+    text = content.strip()
+
+    for loader in (json.loads, ast.literal_eval):
+        try:
+            data = loader(text)
+            if isinstance(data, list):
+                return [item for item in data if isinstance(item, dict)]
+        except Exception:
+            continue
+
+    return []
+
+
+def format_job_search_results(job_results: list[dict], search_term: str, location: str) -> str:
+    if not job_results:
+        location_text = f" in {location}" if location else ""
+        return f"No job results found for **{search_term}**{location_text}."
+
+    lines = [f"### Job matches for **{search_term}**"]
+    if location:
+        lines.append(f"**Location:** {location}")
+    lines.append("")
+
+    for idx, job in enumerate(job_results[:10], 1):
+        title = job.get("title") or job.get("job_title") or "Untitled role"
+        company = job.get("company") or "Unknown company"
+        job_location = job.get("location") or "Unknown location"
+        posted = job.get("date_posted") or "Unknown date"
+        url = job.get("job_url") or job.get("url") or job.get("link") or ""
+
+        lines.append(f"**{idx}. {title}**")
+        lines.append(f"Company: {company}")
+        lines.append(f"Location: {job_location}")
+        lines.append(f"Posted: {posted}")
+        if url:
+            lines.append(f"Link: {url}")
+        lines.append("")
+
+    return "\n".join(lines).strip()
 
 # -----------------------------------------------------------------------------
 # SIDEBAR — UPLOAD + PERSISTENT DOWNLOAD
@@ -167,7 +245,7 @@ async def run_chat_logic(user_input):
         server_params = StdioServerParameters(
             command=sys.executable,
             args=["server/main.py"],
-            env=os.environ.copy()
+            env={**os.environ.copy(), "MCP_TRANSPORT": "stdio"}
         )
         client_context = stdio_client(server_params)
 
@@ -185,18 +263,58 @@ async def run_chat_logic(user_input):
                 }
             } for tool in tools.tools]
 
+            include_resume_context = should_include_resume_context(user_input)
+            resume_context = st.session_state.resume_text if include_resume_context else None
+
             system_prompt = build_enhanced_system_prompt(
-                st.session_state.resume_text,
+                resume_context,
                 openai_tools
             )
 
-            messages = [{"role": "system", "content": system_prompt}] + st.session_state.messages
+            messages = build_model_messages(system_prompt, st.session_state.messages)
+
+            search_intent = any(
+                phrase in user_input.lower()
+                for phrase in ["show me", "find jobs", "search jobs", "jobs in", "job in", "job listings"]
+            )
+
+            if search_intent:
+                search_args = parse_job_search_request(user_input)
+                result = await session.call_tool(
+                    "search_jobs",
+                    arguments={
+                        "search_term": search_args["search_term"],
+                        "location": search_args["location"],
+                        "results_wanted": 10,
+                    },
+                )
+
+                content = ""
+                if hasattr(result, "content") and isinstance(result.content, list):
+                    parts = []
+                    for item in result.content:
+                        if hasattr(item, "text"):
+                            parts.append(item.text)
+                        else:
+                            parts.append(str(item))
+                    content = "\n".join(parts)
+                else:
+                    content = str(result)
+
+                parsed_jobs = parse_job_search_results(content)
+                formatted = format_job_search_results(
+                    parsed_jobs,
+                    search_args["search_term"],
+                    search_args["location"],
+                )
+
+                return formatted, [{"name": "search_jobs", "content": formatted}]
 
             response = client.chat.completions.create(
-                model=deployment_name,
+                model=model_name,
                 messages=messages,
                 tools=openai_tools,
-                tool_choice="auto"
+                tool_choice={"type": "function", "function": {"name": "search_jobs"}} if search_intent else "auto"
             )
 
             response_message = response.choices[0].message
@@ -231,7 +349,7 @@ async def run_chat_logic(user_input):
                         "content": content
                     })
 
-                second = client.chat.completions.create(model=deployment_name, messages=messages)
+                second = client.chat.completions.create(model=model_name, messages=messages)
                 final_response = second.choices[0].message.content
 
             else:

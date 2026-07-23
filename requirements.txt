@@ -8,7 +8,6 @@ pypdf
 python-docx
 python-dotenv
 python-jobspy
-slack_bolt
 streamlit
 sse-starlette
 uvicorn
