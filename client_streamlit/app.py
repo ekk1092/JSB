@@ -1,37 +1,43 @@
-import streamlit as st
-import asyncio
 import os
 import sys
+import io
+import re
+import ast
+import json
+import uuid
+import asyncio
 import threading
 import tempfile
-import uuid
-import ast
 from pathlib import Path
 from datetime import datetime
+import streamlit as st
+from dotenv import load_dotenv
+from openai import OpenAI
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from openai import OpenAI
-from dotenv import load_dotenv
-import io
-import base64
-import json
 from prompts import build_enhanced_system_prompt
 
-# Load environment variables
+# -----------------------------------------------------------------------------
+# ENVIRONMENT & CONFIGURATION
+# -----------------------------------------------------------------------------
 load_dotenv()
 
-# Page configuration
-st.set_page_config(page_title="Job Assistant", layout="wide")
+st.set_page_config(
+    page_title="Job Assistant — AI Career Advisor",
+    page_icon="💼",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# Initialize NVIDIA OpenAI-Compatible Client
+# LLM Client Initialization (OpenAI-compatible / NVIDIA NIM)
 client = OpenAI(
     api_key=os.getenv("NGC_API_KEY"),
-    base_url="https://integrate.api.nvidia.com/v1",
+    base_url=os.getenv("NGC_BASE_URL", "https://integrate.api.nvidia.com/v1"),
 )
 model_name = os.getenv("NVIDIA_MODEL", "meta/llama-3.1-70b-instruct")
 
 # -----------------------------------------------------------------------------
-# 1. Threaded Event Loop
+# THREADED ASYNC EVENT LOOP
 # -----------------------------------------------------------------------------
 @st.cache_resource
 def get_event_loop():
@@ -49,7 +55,7 @@ def run_async(coro):
     return future.result()
 
 # -----------------------------------------------------------------------------
-# Session State Initialization
+# SESSION STATE INITIALIZATION
 # -----------------------------------------------------------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -60,20 +66,18 @@ if "resume_text" not in st.session_state:
 if "resume_path" not in st.session_state:
     st.session_state.resume_path = None
 
-# persistent file state
-for key in ["last_generated_content", "last_generated_type", "last_generated_filename"]:
-    if key not in st.session_state:
-        st.session_state[key] = None
-
-# -----------------------------------------------------------------------------
-# CLEAR BUTTON CALLBACK
-# -----------------------------------------------------------------------------
-def clear_generated_state():
+if "last_generated_content" not in st.session_state:
     st.session_state.last_generated_content = None
+
+if "last_generated_type" not in st.session_state:
     st.session_state.last_generated_type = None
+
+if "last_generated_filename" not in st.session_state:
     st.session_state.last_generated_filename = None
 
-
+# -----------------------------------------------------------------------------
+# HELPER FUNCTIONS & UTILITIES
+# -----------------------------------------------------------------------------
 def should_include_resume_context(user_input: str) -> bool:
     lowered = user_input.lower()
     return any(
@@ -81,15 +85,11 @@ def should_include_resume_context(user_input: str) -> bool:
         for phrase in ["resume", "cover letter", "tailor", "rewrite my resume", "generate a resume"]
     )
 
-
 def build_model_messages(system_prompt: str, chat_messages: list[dict], max_turns: int = 4) -> list[dict]:
-    # Keep only the most recent turns so the prompt stays under the model's 4k context window.
     recent_messages = chat_messages[-(max_turns * 2):]
     return [{"role": "system", "content": system_prompt}] + recent_messages
 
-
 def parse_job_search_request(user_input: str) -> dict[str, str]:
-    import re
     lowered = user_input.lower().strip()
     location_markers = [" in ", " near ", " around "]
     location = ""
@@ -107,6 +107,7 @@ def parse_job_search_request(user_input: str) -> dict[str, str]:
         r"\bhelp me (find|finding|search|look for)\b",
         r"\b(find|search|look)\s+(me|for)?\b",
         r"\b(give me|show me)\b",
+        r"\b(from|on)\s+(linkedin|indeed|glassdoor|ziprecruiter)\b",
         r"\b(a|the)?\s*jobs?\b",
         r"\bin\b",
         r"\bfield\b",
@@ -122,159 +123,70 @@ def parse_job_search_request(user_input: str) -> dict[str, str]:
         "location": location,
     }
 
-
 def parse_job_search_results(content: str) -> list[dict]:
+    if not content:
+        return []
     text = content.strip()
+
+    # Pre-clean non-JSON python object representations
+    cleaned_text = re.sub(r"datetime\.date\((\d+),\s*(\d+),\s*(\d+)\)", r'"\1-\2-\3"', text)
+    cleaned_text = re.sub(r"Timestamp\('([^']+)'\)", r'"\1"', cleaned_text)
+    cleaned_text = re.sub(r"\bnan\b", '""', cleaned_text)
+    cleaned_text = re.sub(r"\bNone\b", '""', cleaned_text)
 
     for loader in (json.loads, ast.literal_eval):
         try:
-            data = loader(text)
+            data = loader(cleaned_text)
             if isinstance(data, list):
                 return [item for item in data if isinstance(item, dict)]
         except Exception:
             continue
 
-    return []
+    # Fallback: handle single-quoted python dictionary representations if returned
+    try:
+        data = ast.literal_eval(cleaned_text.replace('nan', '""'))
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+    except Exception:
+        pass
 
+    return []
 
 def format_job_search_results(job_results: list[dict], search_term: str, location: str) -> str:
     if not job_results:
-        location_text = f" in {location}" if location else ""
-        return f"No job results found for **{search_term}**{location_text}."
+        location_text = f" in **{location}**" if location else ""
+        return (
+            f"No immediate job results found for **{search_term}**{location_text}.\n\n"
+            f"💡 **Suggestions to try:**\n"
+            f"- Try related keywords like `Data Analyst`, `Data Engineer`, or `Machine Learning Engineer`.\n"
+            f"- Search for remote roles: `Data Scientist Remote`.\n"
+            f"- Expand location search to `Delaware` or nearby `Philadelphia, PA`."
+        )
 
-    lines = [f"### Job matches for **{search_term}**"]
+    lines = [f"### 🎯 Job Matches for **{search_term}**"]
     if location:
-        lines.append(f"**Location:** {location}")
+        lines.append(f"📍 **Location:** {location}")
     lines.append("")
 
     for idx, job in enumerate(job_results[:10], 1):
-        title = job.get("title") or job.get("job_title") or "Untitled role"
-        company = job.get("company") or "Unknown company"
-        job_location = job.get("location") or "Unknown location"
-        posted = job.get("date_posted") or "Unknown date"
+        title = job.get("title") or job.get("job_title") or "Untitled Role"
+        company = job.get("company") or "Unknown Company"
+        job_location = job.get("location") or "Unknown Location"
+        posted = job.get("date_posted") or "Recent"
         url = job.get("job_url") or job.get("url") or job.get("link") or ""
 
-        lines.append(f"**{idx}. {title}**")
-        lines.append(f"Company: {company}")
-        lines.append(f"Location: {job_location}")
-        lines.append(f"Posted: {posted}")
+        lines.append(f"**{idx}. {title}** — *{company}*")
+        lines.append(f"• **Location:** {job_location} | **Posted:** {posted}")
         if url:
-            lines.append(f"Link: {url}")
+            lines.append(f"• [Apply / View Job Listing]({url})")
         lines.append("")
 
     return "\n".join(lines).strip()
 
 # -----------------------------------------------------------------------------
-# SIDEBAR — UPLOAD + PERSISTENT DOWNLOAD
+# ASYNC BACKEND DISPATCH (MCP SERVER INTERACTION)
 # -----------------------------------------------------------------------------
-with st.sidebar:
-    # Robust logo path resolution
-    possible_paths = [
-        Path(__file__).parent / "uncw_logo.png",                # When run directly
-        Path.cwd() / "client_streamlit" / "uncw_logo.png",      # When run from root
-        Path("uncw_logo.png")                                   # Fallback
-    ]
-    
-    logo_path = None
-    for p in possible_paths:
-        if p.exists():
-            logo_path = p
-            break
-            
-    if logo_path:
-        st.image(str(logo_path), width='stretch')
-
-    st.title("Resume Upload")
-    uploaded_file = st.file_uploader("Upload your resume", type=["txt", "md", "pdf", "docx", "doc"])
-
-    if uploaded_file:
-        try:
-            tmp_dir = Path(tempfile.gettempdir())
-            safe_name = f"{uuid.uuid4()}_{uploaded_file.name}"
-            resume_abs_path = tmp_dir / safe_name
-
-            with open(resume_abs_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-
-            st.session_state.resume_path = str(resume_abs_path)
-
-            ext = uploaded_file.name.split(".")[-1].lower()
-            text = ""
-
-            if ext in ["txt", "md"]:
-                text = uploaded_file.getvalue().decode("utf-8")
-            elif ext == "pdf":
-                import pypdf
-                pdf_reader = pypdf.PdfReader(io.BytesIO(uploaded_file.getvalue()))
-                for page in pdf_reader.pages:
-                    text += page.extract_text() + "\n"
-            elif ext in ["docx", "doc"]:
-                import docx
-                doc_obj = docx.Document(io.BytesIO(uploaded_file.getvalue()))
-                for para in doc_obj.paragraphs:
-                    text += para.text + "\n"
-
-            st.session_state.resume_text = text
-            st.success("✅ Resume uploaded!")
-
-        except Exception as e:
-            st.error(f"Error: {e}")
-
-    # -------------------------------------------------------------
-    # ⭐ PERSISTENT DOWNLOAD SECTION
-    # -------------------------------------------------------------
-    st.markdown("---")
-    st.subheader("Generated Documents")
-
-    if st.session_state.last_generated_content:
-        label = st.session_state.last_generated_type.replace("_", " ").title()
-        filename = st.session_state.last_generated_filename or f"{label}.docx"
-
-        st.download_button(
-            label=f"⬇ Download {label}",
-            data=st.session_state.last_generated_content,
-            file_name=filename,
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            key="persistent_download_button"
-        )
-    else:
-        st.caption("No generated documents yet.")
-
-    # -------------------------------------------------------------
-    # 🪵 BACKEND LOGS SECTION
-    # -------------------------------------------------------------
-    st.markdown("---")
-    st.subheader("🖥️ Backend Logs")
-    with st.expander("View Server Logs"):
-        log_file = Path(__file__).parent.parent / "backend.log"
-        if log_file.exists():
-            log_content = log_file.read_text(encoding="utf-8")
-            if log_content.strip():
-                # Display last 50 lines of backend.log
-                recent_logs = "\n".join(log_content.splitlines()[-50:])
-                st.code(recent_logs, language="text")
-            else:
-                st.caption("Log file is empty.")
-        else:
-            st.caption("No logs recorded yet.")
-        if st.button("Refresh Logs"):
-            st.rerun()
-
-# -----------------------------------------------------------------------------
-# MAIN CHAT UI
-# -----------------------------------------------------------------------------
-st.title("💼 Job Assistant")
-st.write("I can help you search for jobs, tailor resumes, and write cover letters.")
-
-# Show chat history
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-# -----------------------------------------------------------------------------
-# ASYNC LOGIC
-# -----------------------------------------------------------------------------
-async def run_chat_logic(user_input, chat_messages, resume_text):
+async def run_chat_logic(user_input: str, chat_messages: list[dict], resume_text: str | None):
     mcp_server_url = os.getenv("MCP_SERVER_URL")
 
     if mcp_server_url:
@@ -314,22 +226,18 @@ async def run_chat_logic(user_input, chat_messages, resume_text):
                 }
             } for tool in tools.tools]
 
-            include_resume_context = should_include_resume_context(user_input)
-            resume_context = resume_text if include_resume_context else None
+            include_resume = should_include_resume_context(user_input)
+            resume_ctx = resume_text if include_resume else None
 
-            system_prompt = build_enhanced_system_prompt(
-                resume_context,
-                openai_tools
-            )
-
+            system_prompt = build_enhanced_system_prompt(resume_ctx, openai_tools)
             messages = build_model_messages(system_prompt, chat_messages)
 
             search_intent = any(
                 phrase in user_input.lower()
-                for phrase in ["show me", "find jobs", "search jobs", "jobs in", "job in", "job listings"]
+                for phrase in ["show me", "find", "search", "looking for", "job", "jobs", "hiring", "openings"]
             )
 
-            if search_intent:
+            if search_intent and any(w in user_input.lower() for w in ["find", "search", "jobs", "hiring", "openings", "looking"]):
                 search_args = parse_job_search_request(user_input)
                 result = await session.call_tool(
                     "search_jobs",
@@ -342,12 +250,7 @@ async def run_chat_logic(user_input, chat_messages, resume_text):
 
                 content = ""
                 if hasattr(result, "content") and isinstance(result.content, list):
-                    parts = []
-                    for item in result.content:
-                        if hasattr(item, "text"):
-                            parts.append(item.text)
-                        else:
-                            parts.append(str(item))
+                    parts = [item.text if hasattr(item, "text") else str(item) for item in result.content]
                     content = "\n".join(parts)
                 else:
                     content = str(result)
@@ -365,7 +268,7 @@ async def run_chat_logic(user_input, chat_messages, resume_text):
                 model=model_name,
                 messages=messages,
                 tools=openai_tools,
-                tool_choice={"type": "function", "function": {"name": "search_jobs"}} if search_intent else "auto"
+                tool_choice="auto"
             )
 
             response_message = response.choices[0].message
@@ -376,23 +279,13 @@ async def run_chat_logic(user_input, chat_messages, resume_text):
                 messages.append(response_message)
 
                 for call in response_message.tool_calls:
-                    import json
                     args = json.loads(call.function.arguments)
                     result = await session.call_tool(call.function.name, arguments=args)
 
-                    parts = []
-                    if hasattr(result, "content") and isinstance(result.content, list):
-                        for item in result.content:
-                            if hasattr(item, "text"):
-                                parts.append(item.text)
-                            else:
-                                parts.append(str(item))
-                        content = "\n".join(parts)
-                    else:
-                        content = str(result)
+                    parts = [item.text if hasattr(item, "text") else str(item) for item in (result.content if hasattr(result, "content") and isinstance(result.content, list) else [result])]
+                    content = "\n".join(parts)
 
                     tool_outputs.append({"name": call.function.name, "content": content})
-
                     messages.append({
                         "tool_call_id": call.id,
                         "role": "tool",
@@ -404,22 +297,183 @@ async def run_chat_logic(user_input, chat_messages, resume_text):
                 final_response = second.choices[0].message.content
 
             else:
-                final_response = response_message.content
+                content = response_message.content or ""
+                raw_call = re.search(r"<tool_?call>\s*(\{.*)", content, re.DOTALL)
+                if raw_call:
+                    raw_json_str = raw_call.group(1).strip()
+                    raw_json_str = re.sub(r"</tool_?call>.*$", "", raw_json_str, flags=re.DOTALL).strip()
+                    try:
+                        data = json.loads(raw_json_str)
+                        tool_name = data.get("name")
+                        args = data.get("arguments", {})
+                        if tool_name:
+                            result = await session.call_tool(tool_name, arguments=args)
+                            parts = [item.text if hasattr(item, "text") else str(item) for item in (result.content if hasattr(result, "content") and isinstance(result.content, list) else [result])]
+                            tool_text = "\n".join(parts)
+
+                            if tool_name == "search_jobs":
+                                parsed_jobs = parse_job_search_results(tool_text)
+                                formatted = format_job_search_results(
+                                    parsed_jobs,
+                                    args.get("search_term", "Jobs"),
+                                    args.get("location", "")
+                                )
+                                return formatted, [{"name": "search_jobs", "content": formatted}]
+
+                            return tool_text, [{"name": tool_name, "content": tool_text}]
+                    except Exception:
+                        pass
+
+                final_response = content
 
             return final_response, tool_outputs
 
 # -----------------------------------------------------------------------------
+# SIDEBAR — UPLOAD, DOCUMENTS & LOGS
+# -----------------------------------------------------------------------------
+with st.sidebar:
+    # App Logo
+    logo_path = None
+    for p in [Path(__file__).parent.parent / "uncw.png", Path("uncw.png")]:
+        if p.exists():
+            logo_path = p
+            break
+    if logo_path:
+        st.image(str(logo_path), width="stretch")
+
+    st.title("💼 Job Assistant")
+    st.caption("AI-Powered Job Search, Resume Tailoring & Cover Letters")
+
+    # Resume Upload Section
+    with st.container(border=True):
+        st.subheader("📄 Resume Upload")
+        uploaded_file = st.file_uploader(
+            "Upload your current resume",
+            type=["txt", "md", "pdf", "docx", "doc"],
+            help="Upload your resume to enable automated tailoring and cover letter generation."
+        )
+
+        if uploaded_file:
+            try:
+                tmp_dir = Path(tempfile.gettempdir())
+                safe_name = f"{uuid.uuid4()}_{uploaded_file.name}"
+                resume_abs_path = tmp_dir / safe_name
+
+                with open(resume_abs_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+
+                st.session_state.resume_path = str(resume_abs_path)
+
+                ext = uploaded_file.name.split(".")[-1].lower()
+                text = ""
+
+                if ext in ["txt", "md"]:
+                    text = uploaded_file.getvalue().decode("utf-8")
+                elif ext == "pdf":
+                    import pypdf
+                    pdf_reader = pypdf.PdfReader(io.BytesIO(uploaded_file.getvalue()))
+                    for page in pdf_reader.pages:
+                        text += page.extract_text() + "\n"
+                elif ext in ["docx", "doc"]:
+                    import docx
+                    doc_obj = docx.Document(io.BytesIO(uploaded_file.getvalue()))
+                    for para in doc_obj.paragraphs:
+                        text += para.text + "\n"
+
+                st.session_state.resume_text = text
+                st.success("✅ Resume parsed & attached to session!")
+
+            except Exception as e:
+                st.error(f"Error parsing resume: {e}")
+
+    # Persistent Document Download Section
+    st.subheader("📥 Generated Documents")
+    if st.session_state.last_generated_content:
+        label = st.session_state.last_generated_type.replace("_", " ").title()
+        filename = st.session_state.last_generated_filename or f"{label}.docx"
+
+        st.download_button(
+            label=f":material/download: Download {label}",
+            data=st.session_state.last_generated_content,
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key="persistent_download_button",
+            type="primary"
+        )
+    else:
+        st.caption("No generated `.docx` documents yet.")
+
+    # Server Logs Collapsible
+    st.markdown("---")
+    st.subheader("🖥️ Server Health & Logs")
+    with st.expander(":material/terminal: View Backend Logs"):
+        log_file = Path(__file__).parent.parent / "backend.log"
+        if log_file.exists():
+            log_content = log_file.read_text(encoding="utf-8")
+            if log_content.strip():
+                recent_logs = "\n".join(log_content.splitlines()[-50:])
+                st.code(recent_logs, language="text")
+            else:
+                st.caption("Log file is currently empty.")
+        else:
+            st.caption("No backend logs recorded yet.")
+        if st.button(":material/refresh: Refresh Logs"):
+            st.rerun()
+
+# -----------------------------------------------------------------------------
+# MAIN CHAT UI & ONBOARDING SUGGESTIONS
+# -----------------------------------------------------------------------------
+st.title("🚀 AI Job Search & Career Assistant")
+st.markdown(
+    "Welcome! Ask me to **search for open roles**, **tailor your resume for a job posting**, "
+    "or **write a customized cover letter**."
+)
+
+# Suggestion Chips (Disappear once chat begins)
+SUGGESTIONS = {
+    ":material/search: Data Scientist in Wilmington, DE": "Find Data Scientist jobs in Wilmington DE",
+    ":material/work: Remote Python Developer": "Search for Remote Python Developer jobs",
+    ":material/description: Tailor My Resume": "Help me tailor my resume for a Data Science position",
+    ":material/mail: Write a Cover Letter": "Write a tailored cover letter for a Software Engineer role"
+}
+
+if not st.session_state.messages:
+    st.markdown("##### 💡 Try asking:")
+    selected_chip = st.pills(
+        "Suggestions",
+        list(SUGGESTIONS.keys()),
+        label_visibility="collapsed"
+    )
+    if selected_chip:
+        prompt_text = SUGGESTIONS[selected_chip]
+        st.session_state.messages.append({"role": "user", "content": prompt_text})
+        st.session_state.pending_prompt = prompt_text
+        st.rerun()
+
+# Display Chat History
+for message in st.session_state.messages:
+    avatar = ":material/person:" if message["role"] == "user" else ":material/robot:"
+    with st.chat_message(message["role"], avatar=avatar):
+        st.markdown(message["content"])
+
+# -----------------------------------------------------------------------------
 # CHAT INPUT HANDLER
 # -----------------------------------------------------------------------------
-if prompt := st.chat_input("How can I help you?"):
-    # 👉 DO NOT clear generated files — we want persistent downloads
-    st.session_state.messages.append({"role": "user", "content": prompt})
+prompt = st.chat_input("Ask a question, search for jobs, or request document generation...", submit_mode="disable")
 
-    with st.chat_message("user"):
+if not prompt and st.session_state.get("pending_prompt"):
+    prompt = st.session_state.pop("pending_prompt")
+
+if prompt:
+    # Avoid duplicate append if triggered by suggestion pill
+    if not st.session_state.messages or st.session_state.messages[-1].get("content") != prompt:
+        st.session_state.messages.append({"role": "user", "content": prompt})
+
+    with st.chat_message("user", avatar=":material/person:"):
         st.markdown(prompt)
 
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
+    with st.chat_message("assistant", avatar=":material/robot:"):
+        with st.spinner("Analyzing request & querying backend..."):
             try:
                 final_response, tool_outputs = run_async(
                     run_chat_logic(
@@ -433,48 +487,29 @@ if prompt := st.chat_input("How can I help you?"):
                     content = output["content"]
 
                     if output["name"] in ["tailor_resume", "generate_cover_letter"]:
-                        import json
-                        data = json.loads(content)
+                        try:
+                            data = json.loads(content)
+                            if "error" in data:
+                                st.error(f"Generation failed: {data['error']}")
+                            if "preview" in data:
+                                st.markdown(data["preview"])
+                            if "file_content" in data:
+                                file_bytes = base64.b64decode(data["file_content"])
+                                st.session_state.last_generated_content = file_bytes
+                                st.session_state.last_generated_type = output["name"]
+                                st.session_state.last_generated_filename = data.get("filename")
+                                st.success("✅ Document created! Download it from the sidebar.")
+                        except Exception:
+                            pass
 
-                        if "error" in data:
-                            st.error(f"Generation failed: {data['error']}")
-                        
-                        if "preview" in data:
-                            st.markdown(data["preview"])
+                clean_response = re.sub(r"<tool_?call>.*?</tool_?call>", "", final_response, flags=re.DOTALL).strip()
+                if not clean_response:
+                    clean_response = final_response
 
-                        if "file_content" in data:
-                            file_bytes = base64.b64decode(data["file_content"])
-                            st.session_state.last_generated_content = file_bytes
-                            st.session_state.last_generated_type = (
-                                "resume" if output["name"] == "tailor_resume" else "cover_letter"
-                            )
-                            st.session_state.last_generated_filename = data.get("filename")
-                            
-                            # Ensure the assistant's response is added to chat history before rerun
-                            import re
-                            # Remove raw paths
-                            clean = re.sub(r"/tmp/[^\s]+\.docx", "", final_response)
-                            # Remove markdown links to docx files
-                            clean = re.sub(r"\[.*?\]\(.*\.docx\)", "", clean)
-                            # Remove trailing "Download" text if it remains
-                            clean = clean.replace("Download Cover Letter", "").replace("Download Resume", "")
-                            # Ensure direction points to sidebar
-                            clean = clean.replace("button below", "button in the sidebar")
-                            
-                            st.session_state.messages.append({"role": "assistant", "content": clean})
-                            
-                            st.rerun()
+                st.markdown(clean_response)
+                st.session_state.messages.append({"role": "assistant", "content": clean_response})
 
-                    elif output["name"] not in ["search_jobs", "scrape_job_description"]:
-                        st.markdown(content)
-
-                # Remove file path noise
-                import re
-                clean = re.sub(r"/tmp/[^\s]+\.docx", "", final_response)
-                st.markdown(clean)
-
-                st.session_state.messages.append({"role": "assistant", "content": clean})
-
-            except Exception as e:
-                import traceback
-                st.error(f"Error: {str(e)}\n\n{traceback.format_exc()}")
+            except Exception as exc:
+                err_msg = f"⚠️ An error occurred: {exc}"
+                st.error(err_msg)
+                st.session_state.messages.append({"role": "assistant", "content": err_msg})

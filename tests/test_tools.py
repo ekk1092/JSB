@@ -36,6 +36,16 @@ def test_search_jobs_tool_empty():
         assert results == []
 
 
+def test_search_jobs_tool_success():
+    import pandas as pd
+    dummy_df = pd.DataFrame([{"title": "Data Scientist", "company": "Acme", "location": "Wilmington, DE"}])
+    with patch("server.tools.jobs.scrape_jobs") as mock_scrape:
+        mock_scrape.return_value = dummy_df
+        results = search_jobs_tool("Data Scientist", "Wilmington DE")
+        assert len(results) >= 1
+        assert results[0]["title"] == "Data Scientist"
+
+
 def test_parse_job_search_request():
     from client_streamlit.app import parse_job_search_request
     parsed = parse_job_search_request("Help me finding a job in Data science field in Wilmington De")
