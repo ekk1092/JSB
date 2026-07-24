@@ -26,14 +26,15 @@ logging.basicConfig(
 mcp = FastMCP("Job Assistant", host="0.0.0.0", port=8080)
 
 @mcp.tool()
-def search_jobs(search_term: str, location: str = "", results_wanted: int = 10) -> list:
+def search_jobs(search_term: str, location: str = "", site: str = "", results_wanted: int = 10) -> str:
     """
     Search for jobs on various platforms (Indeed, LinkedIn, etc.).
-    Returns a list of job dictionaries with title, company, location, job_url, and description.
+    Optionally filter by site ('indeed', 'linkedin').
+    Returns a JSON string of job dictionaries with title, company, location, job_url, and description.
     
     IMPORTANT: The result ALREADY contains the job description in the 'description' field.
     """
-    return search_jobs_tool(search_term, location, results_wanted)
+    return search_jobs_tool(search_term, location=location, limit=results_wanted, site=site)
 
 @mcp.tool()
 def tailor_resume(resume_text: str, job_description: str) -> str:

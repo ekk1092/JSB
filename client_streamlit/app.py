@@ -89,11 +89,19 @@ def build_model_messages(system_prompt: str, chat_messages: list[dict], max_turn
     recent_messages = chat_messages[-(max_turns * 2):]
     return [{"role": "system", "content": system_prompt}] + recent_messages
 
-def parse_job_search_request(user_input: str) -> dict[str, str]:
+def parse_job_search_request(user_input: str, previous_messages: list[dict] = None) -> dict[str, str]:
     lowered = user_input.lower().strip()
     location_markers = [" in ", " near ", " around "]
     location = ""
     search_text = user_input.strip()
+
+    target_site = ""
+    if "indeed" in lowered:
+        target_site = "indeed"
+    elif "linkedin" in lowered:
+        target_site = "linkedin"
+    elif "glassdoor" in lowered:
+        target_site = "glassdoor"
 
     for marker in location_markers:
         if marker in lowered:
@@ -107,7 +115,8 @@ def parse_job_search_request(user_input: str) -> dict[str, str]:
         r"\bhelp me (find|finding|search|look for)\b",
         r"\b(find|search|look)\s+(me|for)?\b",
         r"\b(give me|show me)\b",
-        r"\b(from|on)\s+(linkedin|indeed|glassdoor|ziprecruiter)\b",
+        r"\b(from|on|only)\s+(linkedin|indeed|glassdoor|ziprecruiter)\b",
+        r"\b(only)\b",
         r"\b(a|the)?\s*jobs?\b",
         r"\bin\b",
         r"\bfield\b",
@@ -118,10 +127,44 @@ def parse_job_search_request(user_input: str) -> dict[str, str]:
 
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,?.!")
 
+    # Fallback to previous conversation context for short follow-up prompts like "only on Indeed"
+    if (len(cleaned) <= 2 or cleaned.lower() in ["indeed", "linkedin", "glassdoor"]) and previous_messages:
+        for msg in reversed(previous_messages):
+            if msg.get("role") == "user":
+                prev_text = msg.get("content", "")
+                if prev_text and prev_text.strip() != user_input.strip():
+                    prev_parsed = parse_job_search_request(prev_text)
+                    if prev_parsed.get("search_term") and len(prev_parsed["search_term"]) > 2:
+                        cleaned = prev_parsed["search_term"]
+                        if not location:
+                            location = prev_parsed.get("location", "")
+                        break
+
     return {
         "search_term": cleaned if len(cleaned) > 1 else search_text,
         "location": location,
+        "site": target_site,
     }
+
+def repair_and_parse_toolcall_json(raw_json_str: str) -> dict | None:
+    text = raw_json_str.strip()
+    text = re.sub(r"</tool_?call>.*$", "", text, flags=re.DOTALL).strip()
+    
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+
+    # Repair truncated JSON strings (e.g. missing trailing fields or brackets)
+    cleaned = re.sub(r",?\s*\"[^\"]*\"?\s*:?\s*$", "", text).strip()
+    open_braces = cleaned.count("{") - cleaned.count("}")
+    open_brackets = cleaned.count("[") - cleaned.count("]")
+    cleaned += "]" * max(0, open_brackets) + "}" * max(0, open_braces)
+
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        return None
 
 def parse_job_search_results(content: str) -> list[dict]:
     if not content:
@@ -234,16 +277,17 @@ async def run_chat_logic(user_input: str, chat_messages: list[dict], resume_text
 
             search_intent = any(
                 phrase in user_input.lower()
-                for phrase in ["show me", "find", "search", "looking for", "job", "jobs", "hiring", "openings"]
+                for phrase in ["show me", "find", "search", "looking for", "job", "jobs", "hiring", "openings", "indeed", "linkedin", "only"]
             )
 
-            if search_intent and any(w in user_input.lower() for w in ["find", "search", "jobs", "hiring", "openings", "looking"]):
-                search_args = parse_job_search_request(user_input)
+            if search_intent:
+                search_args = parse_job_search_request(user_input, chat_messages)
                 result = await session.call_tool(
                     "search_jobs",
                     arguments={
                         "search_term": search_args["search_term"],
                         "location": search_args["location"],
+                        "site": search_args.get("site", ""),
                         "results_wanted": 10,
                     },
                 )
@@ -301,9 +345,8 @@ async def run_chat_logic(user_input: str, chat_messages: list[dict], resume_text
                 raw_call = re.search(r"<tool_?call>\s*(\{.*)", content, re.DOTALL)
                 if raw_call:
                     raw_json_str = raw_call.group(1).strip()
-                    raw_json_str = re.sub(r"</tool_?call>.*$", "", raw_json_str, flags=re.DOTALL).strip()
-                    try:
-                        data = json.loads(raw_json_str)
+                    data = repair_and_parse_toolcall_json(raw_json_str)
+                    if data:
                         tool_name = data.get("name")
                         args = data.get("arguments", {})
                         if tool_name:
@@ -321,8 +364,6 @@ async def run_chat_logic(user_input: str, chat_messages: list[dict], resume_text
                                 return formatted, [{"name": "search_jobs", "content": formatted}]
 
                             return tool_text, [{"name": tool_name, "content": tool_text}]
-                    except Exception:
-                        pass
 
                 final_response = content
 
