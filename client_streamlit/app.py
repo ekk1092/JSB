@@ -2,11 +2,9 @@ import streamlit as st
 import asyncio
 import os
 import sys
-import threading
 import tempfile
 import uuid
 from pathlib import Path
-from datetime import datetime
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from openai import AzureOpenAI
@@ -30,21 +28,9 @@ client = AzureOpenAI(
 deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
 
 # -----------------------------------------------------------------------------
-# 1. Threaded Event Loop
-# -----------------------------------------------------------------------------
-@st.cache_resource
-def get_event_loop():
-    loop = asyncio.new_event_loop()
-    def run_loop():
-        asyncio.set_event_loop(loop)
-        loop.run_forever()
-    thread = threading.Thread(target=run_loop, daemon=True)
-    thread.start()
-    return loop
-
-# -----------------------------------------------------------------------------
 # Session State Initialization
 # -----------------------------------------------------------------------------
+MAX_MESSAGES = 20  # Cap chat history sent to the LLM to bound context/cost
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -85,7 +71,7 @@ with st.sidebar:
             break
             
     if logo_path:
-        st.image(str(logo_path), width='stretch')
+        st.image(str(logo_path), use_container_width=True)
 
     st.title("Resume Upload")
     uploaded_file = st.file_uploader("Upload your resume", type=["txt", "md", "pdf", "docx", "doc"])
@@ -190,7 +176,9 @@ async def run_chat_logic(user_input):
                 openai_tools
             )
 
-            messages = [{"role": "system", "content": system_prompt}] + st.session_state.messages
+            # Cap history to the most recent N messages to bound context window
+            recent_messages = st.session_state.messages[-MAX_MESSAGES:]
+            messages = [{"role": "system", "content": system_prompt}] + recent_messages
 
             response = client.chat.completions.create(
                 model=deployment_name,

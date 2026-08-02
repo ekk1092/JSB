@@ -20,7 +20,7 @@ log "  - Git Branch:     ${YELLOW}$GIT_BRANCH${NC}"
 echo ""
 
 # 1. Build Docker Image in ACR
-log "[1/4] Building Docker image in Azure Container Registry..."
+log "[1/3] Building Docker image in Azure Container Registry..."
 az acr build --registry $ACR_NAME --image $IMAGE_NAME --platform linux/amd64 .
 
 if [ $? -ne 0 ]; then
@@ -31,7 +31,7 @@ success "Docker image built successfully."
 echo ""
 
 # 2. Update MCP Server
-log "[2/4] Updating MCP Server..."
+log "[2/3] Updating MCP Server..."
 az containerapp update --name mcp-server --resource-group $RESOURCE_GROUP --image $ACR_NAME.azurecr.io/$IMAGE_NAME --set-env-vars MCP_TRANSPORT=sse
 
 if [ $? -ne 0 ]; then
@@ -42,7 +42,7 @@ success "MCP Server updated."
 echo ""
 
 # 3. Update Streamlit Client
-log "[3/4] Updating Streamlit Client..."
+log "[3/3] Updating Streamlit Client..."
 az containerapp update --name streamlit-client --resource-group $RESOURCE_GROUP --image $ACR_NAME.azurecr.io/$IMAGE_NAME --set-env-vars STREAMLIT_SERVER_ENABLE_CORS=false STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=false
 
 if [ $? -ne 0 ]; then
@@ -52,18 +52,7 @@ fi
 success "Streamlit Client updated."
 echo ""
 
-# 4. Update Slack Bot
-log "[4/4] Updating Slack Bot..."
-az containerapp update --name slack-bot --resource-group $RESOURCE_GROUP --image $ACR_NAME.azurecr.io/$IMAGE_NAME
-
-if [ $? -ne 0 ]; then
-    error "Failed to update Slack Bot."
-    exit 1
-fi
-success "Slack Bot updated."
-echo ""
-
-# 5. Retrieve and Display URLs
+# 4. Retrieve and Display URLs
 log "Retrieving application URLs..."
 
 echo -e "${GREEN}==================================================${NC}"

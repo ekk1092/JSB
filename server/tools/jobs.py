@@ -1,6 +1,6 @@
+import json
 import logging
 from jobspy import scrape_jobs
-import pandas as pd
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -17,5 +17,9 @@ def search_jobs_tool(query: str, location: str = "", limit: int = 10):
         location=location,
         results_wanted=limit
     )
-    return jobs.to_dict(orient="records")
+    # jobspy returns a DataFrame with datetime64 and float columns that are not
+    # JSON-serializable. Convert to JSON-safe records (ISO dates, NaN -> null).
+    return json.loads(
+        jobs.to_json(orient="records", date_format="iso", default_handler=str)
+    )
 

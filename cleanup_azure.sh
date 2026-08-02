@@ -51,7 +51,7 @@ success "ACR cleanup complete."
 # -----------------------------------------------------------------------------
 # 2. Clean up Container App Revisions
 # -----------------------------------------------------------------------------
-APPS=("mcp-server" "streamlit-client" "slack-bot")
+APPS=("mcp-server" "streamlit-client")
 
 log "Cleaning up inactive Container App revisions..."
 

@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+*.log
+.git
+.gitignore
+deployment_history.log
+client_slack
+tests
+*.md
+!README.md
+!Deployment.md
