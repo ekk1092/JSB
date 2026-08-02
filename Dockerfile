@@ -21,8 +21,9 @@ COPY . .
 # Expose ports (Streamlit uses 8501 by default)
 EXPOSE 8501
 
-# Define environment variables (can be overridden at runtime)
-# ENV AZURE_OPENAI_API_KEY=...
+# Healthcheck for the MCP server (SSE endpoint on 8080)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/sse', timeout=3)" || exit 1
 
 # Default command (can be overridden)
 CMD ["python", "server/main.py"]

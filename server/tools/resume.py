@@ -3,6 +3,7 @@ import json
 import tempfile
 import traceback
 import base64
+import hashlib
 from docx import Document
 from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -11,6 +12,11 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Simple in-memory cache for job metadata extraction to avoid duplicate Azure calls.
+# Keyed by a hash of the job description; bounded to prevent unbounded growth.
+_METADATA_CACHE = {}
+_METADATA_CACHE_MAX = 128
 
 
 def get_azure_client():
@@ -297,7 +303,13 @@ def extract_job_metadata(job_description: str) -> dict:
     """
     Extracts company_name and company_location from the job description
     using a small, constrained JSON schema.
+    Results are cached per job description to avoid redundant Azure calls.
     """
+    # Cache lookup
+    cache_key = hashlib.sha256(job_description.encode("utf-8")).hexdigest()
+    if cache_key in _METADATA_CACHE:
+        return _METADATA_CACHE[cache_key]
+
     client = get_azure_client()
     deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
 
@@ -340,6 +352,11 @@ def extract_job_metadata(job_description: str) -> dict:
         meta["company_name"] = None
     if "company_location" not in meta:
         meta["company_location"] = None
+
+    # Store in bounded cache
+    if len(_METADATA_CACHE) >= _METADATA_CACHE_MAX:
+        _METADATA_CACHE.pop(next(iter(_METADATA_CACHE)))
+    _METADATA_CACHE[cache_key] = meta
 
     return meta
 

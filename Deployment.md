@@ -59,6 +59,8 @@ Deploy the backend server first. It exposes an SSE endpoint for clients.
 REGISTRY_PASSWORD=$(az acr credential show -n $ACR_NAME --query "passwords[0].value" -o tsv)
 
 # Deploy Server
+# NOTE: Sensitive values (API keys) are passed as SECRETS, not env-vars,
+# so they never appear in plaintext in the container app config or logs.
 az containerapp create \
   --name mcp-server \
   --resource-group $RESOURCE_GROUP \
@@ -69,11 +71,13 @@ az containerapp create \
   --registry-server $ACR_NAME.azurecr.io \
   --registry-username $ACR_NAME \
   --registry-password $REGISTRY_PASSWORD \
+  --secrets \
+    azure-openai-api-key=$AZURE_OPENAI_API_KEY \
   --env-vars \
-    AZURE_OPENAI_API_KEY=$AZURE_OPENAI_API_KEY \
     AZURE_OPENAI_ENDPOINT=$AZURE_OPENAI_ENDPOINT \
     AZURE_OPENAI_API_VERSION=$AZURE_OPENAI_API_VERSION \
     AZURE_OPENAI_DEPLOYMENT_NAME=$AZURE_OPENAI_DEPLOYMENT_NAME \
+    AZURE_OPENAI_API_KEY=secretref:azure-openai-api-key \
     MCP_TRANSPORT="sse" \
   --command "python" "server/main.py"
 ```
@@ -101,12 +105,14 @@ az containerapp create \
   --registry-server $ACR_NAME.azurecr.io \
   --registry-username $ACR_NAME \
   --registry-password $REGISTRY_PASSWORD \
+  --secrets \
+    azure-openai-api-key=$AZURE_OPENAI_API_KEY \
   --env-vars \
     MCP_SERVER_URL=$MCP_SERVER_URL \
-    AZURE_OPENAI_API_KEY=$AZURE_OPENAI_API_KEY \
     AZURE_OPENAI_ENDPOINT=$AZURE_OPENAI_ENDPOINT \
     AZURE_OPENAI_API_VERSION=$AZURE_OPENAI_API_VERSION \
     AZURE_OPENAI_DEPLOYMENT_NAME=$AZURE_OPENAI_DEPLOYMENT_NAME \
+    AZURE_OPENAI_API_KEY=secretref:azure-openai-api-key \
     STREAMLIT_SERVER_PORT=8501 \
     STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
   --command "streamlit" "run" "client_streamlit/app.py"

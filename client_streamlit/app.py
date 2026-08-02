@@ -74,7 +74,7 @@ with st.sidebar:
         st.image(str(logo_path), use_container_width=True)
 
     st.title("Resume Upload")
-    uploaded_file = st.file_uploader("Upload your resume", type=["txt", "md", "pdf", "docx", "doc"])
+    uploaded_file = st.file_uploader("Upload your resume", type=["txt", "md", "pdf", "docx"])
 
     if uploaded_file:
         try:
@@ -97,7 +97,7 @@ with st.sidebar:
                 pdf_reader = pypdf.PdfReader(io.BytesIO(uploaded_file.getvalue()))
                 for page in pdf_reader.pages:
                     text += page.extract_text() + "\n"
-            elif ext in ["docx", "doc"]:
+            elif ext == "docx":
                 import docx
                 doc_obj = docx.Document(io.BytesIO(uploaded_file.getvalue()))
                 for para in doc_obj.paragraphs:

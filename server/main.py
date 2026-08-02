@@ -1,8 +1,15 @@
 from mcp.server.fastmcp import FastMCP
-from tools.jobs import search_jobs_tool
-from tools.resume import tailor_resume_tool, generate_cover_letter_tool
-from tools.web_scraper import scrape_job_description_tool
 import logging
+
+# Support both `python server/main.py` (script) and `import server.main` (module)
+try:
+    from .tools.jobs import search_jobs_tool
+    from .tools.resume import tailor_resume_tool, generate_cover_letter_tool
+    from .tools.web_scraper import scrape_job_description_tool
+except ImportError:
+    from tools.jobs import search_jobs_tool
+    from tools.resume import tailor_resume_tool, generate_cover_letter_tool
+    from tools.web_scraper import scrape_job_description_tool
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
