@@ -19,11 +19,11 @@ LOCATION="centralus"
 ACR_NAME="jobassistantacr"
 ENV_NAME="job-assistant-env"
 
-# OpenAI Secrets
-AZURE_OPENAI_API_KEY="your_openai_api_key"
-AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com/"
-AZURE_OPENAI_API_VERSION="2025-01-01-preview"
-AZURE_OPENAI_DEPLOYMENT_NAME="gpt-4.1"
+# Google Gemini Secrets (free tier)
+# Get a free API key at https://aistudio.google.com/apikey
+GEMINI_API_KEY="your_gemini_api_key"
+GEMINI_BASE_URL="https://generativelanguage.googleapis.com/v1beta/openai/"
+GEMINI_MODEL="gemini-2.0-flash"
 
 ```
 
@@ -72,12 +72,11 @@ az containerapp create \
   --registry-username $ACR_NAME \
   --registry-password $REGISTRY_PASSWORD \
   --secrets \
-    azure-openai-api-key=$AZURE_OPENAI_API_KEY \
+    gemini-api-key=$GEMINI_API_KEY \
   --env-vars \
-    AZURE_OPENAI_ENDPOINT=$AZURE_OPENAI_ENDPOINT \
-    AZURE_OPENAI_API_VERSION=$AZURE_OPENAI_API_VERSION \
-    AZURE_OPENAI_DEPLOYMENT_NAME=$AZURE_OPENAI_DEPLOYMENT_NAME \
-    AZURE_OPENAI_API_KEY=secretref:azure-openai-api-key \
+    GEMINI_BASE_URL=$GEMINI_BASE_URL \
+    GEMINI_MODEL=$GEMINI_MODEL \
+    GEMINI_API_KEY=secretref:gemini-api-key \
     MCP_TRANSPORT="sse" \
   --command "python" "server/main.py"
 ```
@@ -106,13 +105,12 @@ az containerapp create \
   --registry-username $ACR_NAME \
   --registry-password $REGISTRY_PASSWORD \
   --secrets \
-    azure-openai-api-key=$AZURE_OPENAI_API_KEY \
+    gemini-api-key=$GEMINI_API_KEY \
   --env-vars \
     MCP_SERVER_URL=$MCP_SERVER_URL \
-    AZURE_OPENAI_ENDPOINT=$AZURE_OPENAI_ENDPOINT \
-    AZURE_OPENAI_API_VERSION=$AZURE_OPENAI_API_VERSION \
-    AZURE_OPENAI_DEPLOYMENT_NAME=$AZURE_OPENAI_DEPLOYMENT_NAME \
-    AZURE_OPENAI_API_KEY=secretref:azure-openai-api-key \
+    GEMINI_BASE_URL=$GEMINI_BASE_URL \
+    GEMINI_MODEL=$GEMINI_MODEL \
+    GEMINI_API_KEY=secretref:gemini-api-key \
     STREAMLIT_SERVER_PORT=8501 \
     STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
   --command "streamlit" "run" "client_streamlit/app.py"
@@ -123,6 +121,7 @@ az containerapp create \
 -   **Image Pull Errors**: Ensure `admin-enabled` is true for your ACR and you are passing the correct username/password.
 -   **Architecture Mismatch**: Ensure you build with `--platform linux/amd64` if deploying to Azure from a Mac (M1/M2).
 -   **Connection Errors**: Verify the `MCP_SERVER_URL` is correct and accessible.
+-   **Gemini API Errors**: Verify `GEMINI_API_KEY` is valid and `GEMINI_MODEL` is one of the free-tier models (`gemini-2.0-flash`, `gemini-1.5-flash`).
 
 ## 8. Verification
 
@@ -133,4 +132,3 @@ After deployment, verify the application:
     -   Verify the **UNCW Logo** is present in the sidebar.
     -   Type "what can you do?" in the chat.
     -   Confirm the assistant responds correctly (this verifies the SSE connection).
-

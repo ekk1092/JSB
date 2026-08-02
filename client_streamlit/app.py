@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from openai import AzureOpenAI
+from openai import OpenAI
 from dotenv import load_dotenv
 import io
 import base64
@@ -19,13 +19,12 @@ load_dotenv()
 # Page configuration
 st.set_page_config(page_title="Job Assistant", layout="wide")
 
-# Initialize Azure OpenAI Client
-client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
+# Initialize LLM Client (OpenAI-compatible endpoint pointing at Google Gemini)
+client = OpenAI(
+    api_key=os.getenv("GEMINI_API_KEY"),
+    base_url=os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/"),
 )
-deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
+model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
 # -----------------------------------------------------------------------------
 # Session State Initialization
@@ -181,7 +180,7 @@ async def run_chat_logic(user_input):
             messages = [{"role": "system", "content": system_prompt}] + recent_messages
 
             response = client.chat.completions.create(
-                model=deployment_name,
+                model=model_name,
                 messages=messages,
                 tools=openai_tools,
                 tool_choice="auto"
@@ -219,7 +218,7 @@ async def run_chat_logic(user_input):
                         "content": content
                     })
 
-                second = client.chat.completions.create(model=deployment_name, messages=messages)
+                second = client.chat.completions.create(model=model_name, messages=messages)
                 final_response = second.choices[0].message.content
 
             else:

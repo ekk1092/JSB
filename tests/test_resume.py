@@ -81,7 +81,7 @@ def test_extract_job_metadata_caches_result():
     fake_response = type("Resp", (), {"choices": [type("C", (), {"message": type("M", (), {"content": '{"company_name": "Acme", "company_location": "NYC"}'})()})()]})()
     fake_client = type("Client", (), {"chat": type("Chat", (), {"completions": type("Comp", (), {"create": lambda self, **kw: fake_response})()})()})()
 
-    with patch("server.tools.resume.get_azure_client", return_value=fake_client):
+    with patch("server.tools.resume.get_llm_client", return_value=fake_client):
         meta1 = extract_job_metadata("Job description for Acme in NYC")
         meta2 = extract_job_metadata("Job description for Acme in NYC")
 

@@ -1,6 +1,6 @@
 # Job Assistant (UNCW)
 
-A powerful AI-driven job search assistant that helps candidates find opportunities, tailor resumes, and write cover letters. Built with **FastMCP**, **Streamlit**, and **Azure OpenAI**.
+A powerful AI-driven job search assistant that helps candidates find opportunities, tailor resumes, and write cover letters. Built with **FastMCP**, **Streamlit**, and **Google Gemini**.
 
 ## Features
 
@@ -8,7 +8,7 @@ A powerful AI-driven job search assistant that helps candidates find opportuniti
 -   **Resume Tailoring**: Customize your resume for specific job descriptions.
 -   **Cover Letter Generation**: Create personalized cover letters.
 -   **Multi-Platform**: Accessible via a **Streamlit Web UI**.
--   **Azure Integration**: Deployed on Azure Container Apps with Azure OpenAI.
+-   **Azure Integration**: Deployed on Azure Container Apps with Google Gemini.
 
 ## Architecture
 
@@ -43,9 +43,9 @@ The project consists of two main components:
 2.  **Set up environment variables**:
     Create a `.env` file with the following:
     ```env
-    AZURE_OPENAI_API_KEY=...
-    AZURE_OPENAI_ENDPOINT=...
-    AZURE_OPENAI_DEPLOYMENT_NAME=...
+    GEMINI_API_KEY=...  # Get one free at https://aistudio.google.com/apikey
+    GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
+    GEMINI_MODEL=gemini-2.0-flash
     ```
 
 3.  **Install dependencies**:
@@ -70,6 +70,6 @@ See [Deployment.md](Deployment.md) for a detailed step-by-step guide.
 -   **Python 3.11**
 -   **FastMCP** (Model Context Protocol)
 -   **Streamlit**
--   **Azure OpenAI**
+-   **Google Gemini** (OpenAI-compatible endpoint)
 -   **Docker**
 -   **Azure Container Apps**

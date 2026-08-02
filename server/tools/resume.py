@@ -7,23 +7,23 @@ import hashlib
 from docx import Document
 from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from openai import AzureOpenAI
+from openai import OpenAI
 from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Simple in-memory cache for job metadata extraction to avoid duplicate Azure calls.
+# Simple in-memory cache for job metadata extraction to avoid duplicate LLM calls.
 # Keyed by a hash of the job description; bounded to prevent unbounded growth.
 _METADATA_CACHE = {}
 _METADATA_CACHE_MAX = 128
 
 
-def get_azure_client():
-    return AzureOpenAI(
-        api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-        api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
-        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+def get_llm_client():
+    """Create an OpenAI-compatible client pointing at Google Gemini's endpoint."""
+    return OpenAI(
+        api_key=os.getenv("GEMINI_API_KEY"),
+        base_url=os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/"),
     )
 
 
@@ -215,8 +215,8 @@ def tailor_resume_tool(resume_text: str, job_description: str) -> str:
     """
     Tailors a resume and returns a JSON string with 'preview' (markdown) and 'file_content' (base64).
     """
-    client = get_azure_client()
-    deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
+    client = get_llm_client()
+    model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
     # Extract company metadata for filename
     job_meta = extract_job_metadata(job_description)
@@ -251,7 +251,7 @@ def tailor_resume_tool(resume_text: str, job_description: str) -> str:
     """
 
     response = client.chat.completions.create(
-        model=deployment_name,
+        model=model_name,
         messages=[
             {"role": "system", "content": "You are a helpful assistant that outputs JSON."},
             {"role": "user", "content": prompt},
@@ -303,15 +303,15 @@ def extract_job_metadata(job_description: str) -> dict:
     """
     Extracts company_name and company_location from the job description
     using a small, constrained JSON schema.
-    Results are cached per job description to avoid redundant Azure calls.
+    Results are cached per job description to avoid redundant LLM calls.
     """
     # Cache lookup
     cache_key = hashlib.sha256(job_description.encode("utf-8")).hexdigest()
     if cache_key in _METADATA_CACHE:
         return _METADATA_CACHE[cache_key]
 
-    client = get_azure_client()
-    deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
+    client = get_llm_client()
+    model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
     prompt = f"""
     You are an information extraction assistant.
@@ -331,7 +331,7 @@ def extract_job_metadata(job_description: str) -> dict:
     """
 
     resp = client.chat.completions.create(
-        model=deployment_name,
+        model=model_name,
         messages=[
             {"role": "system", "content": "You are a helpful assistant that outputs ONLY valid JSON."},
             {"role": "user", "content": prompt},
@@ -366,8 +366,8 @@ def generate_cover_letter_tool(resume_text: str, job_description: str) -> str:
     Generates a cover letter and returns a JSON string with 'preview' (markdown) and 'file_content' (base64).
     Company name and location are extracted once and then enforced.
     """
-    client = get_azure_client()
-    deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
+    client = get_llm_client()
+    model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
     current_date = datetime.now().strftime("%B %d, %Y")
 
@@ -422,7 +422,7 @@ def generate_cover_letter_tool(resume_text: str, job_description: str) -> str:
     """
 
     response = client.chat.completions.create(
-        model=deployment_name,
+        model=model_name,
         messages=[
             {"role": "system", "content": "You are a helpful assistant that outputs JSON only."},
             {"role": "user", "content": prompt},
