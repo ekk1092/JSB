@@ -129,6 +129,6 @@ After deployment, verify the application:
 
 1.  **Streamlit Client**:
     -   Navigate to the Streamlit URL.
-    -   Verify the **UNCW Logo** is present in the sidebar.
+    -   Verify the **JSB Logo** is present in the sidebar.
     -   Type "what can you do?" in the chat.
     -   Confirm the assistant responds correctly (this verifies the SSE connection).

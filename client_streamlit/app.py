@@ -45,6 +45,10 @@ def _parse_retry_after(exc: RateLimitError) -> float | None:
     return None
 
 
+def _normalize_text(value) -> str:
+    return value if isinstance(value, str) else ""
+
+
 def call_llm_with_retry(**kwargs):
     """
     Call the Gemini LLM with automatic retry on 429 RateLimitError.
@@ -97,9 +101,9 @@ def clear_generated_state():
 with st.sidebar:
     # Robust logo path resolution
     possible_paths = [
-        Path(__file__).parent / "uncw_logo.png",                # When run directly
-        Path.cwd() / "client_streamlit" / "uncw_logo.png",      # When run from root
-        Path("uncw_logo.png")                                   # Fallback
+        Path(__file__).parent / "jsb_logo.png",                 # When run directly
+        Path.cwd() / "client_streamlit" / "jsb_logo.png",       # When run from root
+        Path("jsb_logo.png")                                    # Fallback
     ]
     
     logo_path = None
@@ -282,10 +286,10 @@ async def run_chat_logic(user_input):
                         "The Gemini API quota is currently exhausted." + retry_text,
                         [],
                     )
-                final_response = second.choices[0].message.content
+                final_response = _normalize_text(second.choices[0].message.content)
 
             else:
-                final_response = response_message.content
+                final_response = _normalize_text(response_message.content)
 
             return final_response, tool_outputs
 
@@ -305,7 +309,7 @@ if prompt := st.chat_input("How can I help you?"):
                 final_response, tool_outputs = asyncio.run(run_chat_logic(prompt))
 
                 for output in tool_outputs:
-                    content = output["content"]
+                    content = _normalize_text(output["content"])
 
                     if output["name"] in ["tailor_resume", "generate_cover_letter"]:
                         import json
@@ -345,7 +349,9 @@ if prompt := st.chat_input("How can I help you?"):
 
                 # Remove file path noise
                 import re
-                clean = re.sub(r"/tmp/[^\s]+\.docx", "", final_response)
+                clean = re.sub(r"/tmp/[^\s]+\.docx", "", _normalize_text(final_response))
+                if not clean.strip():
+                    clean = "I couldn't generate a response because the tool request failed. Please try again."
                 st.markdown(clean)
 
                 st.session_state.messages.append({"role": "assistant", "content": clean})

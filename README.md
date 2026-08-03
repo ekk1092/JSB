@@ -1,4 +1,4 @@
-# Job Assistant (UNCW)
+# Job Assistant (JSB)
 
 A powerful AI-driven job search assistant that helps candidates find opportunities, tailor resumes, and write cover letters. Built with **FastMCP**, **Streamlit**, and **Google Gemini**.
 
@@ -26,7 +26,7 @@ The project consists of two main components:
 │   └── tools/              # Tool definitions (jobs, resume, etc.)
 ├── client_streamlit/       # Streamlit Web App
 │   ├── app.py              # Main application logic
-│   └── uncw_logo.png       # Sidebar logo
+│   └── jsb_logo.png        # Sidebar logo
 ├── Dockerfile              # Multi-service Dockerfile
 ├── Deployment.md           # Azure deployment guide
 └── requirements.txt        # Dependencies
