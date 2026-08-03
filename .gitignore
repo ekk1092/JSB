@@ -6,3 +6,4 @@ __pycache__
 
 InternDeploy.md
 *.log
+settings.json

@@ -1,5 +1,6 @@
 from mcp.server.fastmcp import FastMCP
 import logging
+import os
 
 # Support both `python server/main.py` (script) and `import server.main` (module)
 try:
@@ -53,4 +54,5 @@ def scrape_job_description(url: str) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run(transport='sse')
+    transport = os.getenv("MCP_TRANSPORT", "stdio").strip().lower()
+    mcp.run(transport=transport)

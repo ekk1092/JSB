@@ -11,7 +11,9 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import io
 import base64
+import re
 from prompts import build_enhanced_system_prompt
+from openai import RateLimitError
 
 # Load environment variables
 load_dotenv()
@@ -179,12 +181,25 @@ async def run_chat_logic(user_input):
             recent_messages = st.session_state.messages[-MAX_MESSAGES:]
             messages = [{"role": "system", "content": system_prompt}] + recent_messages
 
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                tools=openai_tools,
-                tool_choice="auto"
-            )
+            try:
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    tools=openai_tools,
+                    tool_choice="auto"
+                )
+            except RateLimitError as exc:
+                message = str(exc)
+                retry_match = re.search(r"Please retry in ([0-9.]+)s", message)
+                retry_text = (
+                    f" Please try again in about {float(retry_match.group(1)):.0f} seconds."
+                    if retry_match
+                    else " Please try again shortly."
+                )
+                return (
+                    "The Gemini API quota is currently exhausted." + retry_text,
+                    [],
+                )
 
             response_message = response.choices[0].message
             tool_outputs = []
@@ -218,7 +233,20 @@ async def run_chat_logic(user_input):
                         "content": content
                     })
 
-                second = client.chat.completions.create(model=model_name, messages=messages)
+                try:
+                    second = client.chat.completions.create(model=model_name, messages=messages)
+                except RateLimitError as exc:
+                    message = str(exc)
+                    retry_match = re.search(r"Please retry in ([0-9.]+)s", message)
+                    retry_text = (
+                        f" Please try again in about {float(retry_match.group(1)):.0f} seconds."
+                        if retry_match
+                        else " Please try again shortly."
+                    )
+                    return (
+                        "The Gemini API quota is currently exhausted." + retry_text,
+                        [],
+                    )
                 final_response = second.choices[0].message.content
 
             else:
