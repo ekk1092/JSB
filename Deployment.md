@@ -23,7 +23,7 @@ ENV_NAME="job-assistant-env"
 # Get a free API key at https://aistudio.google.com/apikey
 GEMINI_API_KEY="your_gemini_api_key"
 GEMINI_BASE_URL="https://generativelanguage.googleapis.com/v1beta/openai/"
-GEMINI_MODEL="gemini-2.0-flash"
+GEMINI_MODEL="gemini-3.5-flash"
 
 ```
 
@@ -121,7 +121,7 @@ az containerapp create \
 -   **Image Pull Errors**: Ensure `admin-enabled` is true for your ACR and you are passing the correct username/password.
 -   **Architecture Mismatch**: Ensure you build with `--platform linux/amd64` if deploying to Azure from a Mac (M1/M2).
 -   **Connection Errors**: Verify the `MCP_SERVER_URL` is correct and accessible.
--   **Gemini API Errors**: Verify `GEMINI_API_KEY` is valid and `GEMINI_MODEL` is one of the free-tier models (`gemini-2.0-flash`, `gemini-1.5-flash`).
+-   **Gemini API Errors**: Verify `GEMINI_API_KEY` is valid and `GEMINI_MODEL` is a valid model (e.g., `gemini-3.5-flash`).
 
 ## 8. Verification
 

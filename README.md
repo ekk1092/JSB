@@ -45,7 +45,7 @@ The project consists of two main components:
     ```env
     GEMINI_API_KEY=...  # Get one free at https://aistudio.google.com/apikey
     GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
-    GEMINI_MODEL=gemini-2.0-flash
+    GEMINI_MODEL=gemini-3.5-flash
     ```
 
 3.  **Install dependencies**:

@@ -1,22 +1,31 @@
 import os
+import re
 import json
+import time
 import tempfile
 import traceback
 import base64
 import hashlib
+import logging
 from docx import Document
 from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from openai import OpenAI
+from openai import OpenAI, RateLimitError
 from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 # Simple in-memory cache for job metadata extraction to avoid duplicate LLM calls.
 # Keyed by a hash of the job description; bounded to prevent unbounded growth.
 _METADATA_CACHE = {}
 _METADATA_CACHE_MAX = 128
+
+# Retry configuration for Gemini API rate-limit (429) errors.
+LLM_MAX_RETRIES = 4
+LLM_BASE_BACKOFF_SECONDS = 2.0
 
 
 def get_llm_client():
@@ -25,6 +34,43 @@ def get_llm_client():
         api_key=os.getenv("GEMINI_API_KEY"),
         base_url=os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/"),
     )
+
+
+def _parse_retry_after(exc: RateLimitError) -> float | None:
+    """Extract the 'Please retry in Xs' hint from a Gemini RateLimitError."""
+    match = re.search(r"Please retry in ([0-9.]+)s", str(exc))
+    if match:
+        try:
+            return float(match.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+def call_llm_with_retry(client, **kwargs):
+    """
+    Call the LLM with automatic retry on 429 RateLimitError.
+
+    Uses exponential backoff, but respects the 'Please retry in Xs' hint
+    returned by Gemini when available.  Raises the last RateLimitError if
+    all retries are exhausted so callers can produce a user-friendly error.
+    """
+    last_exc = None
+    for attempt in range(1, LLM_MAX_RETRIES + 1):
+        try:
+            return client.chat.completions.create(**kwargs)
+        except RateLimitError as exc:
+            last_exc = exc
+            # Prefer the server-provided retry hint; fall back to exponential backoff
+            retry_after = _parse_retry_after(exc)
+            wait = retry_after if retry_after else (LLM_BASE_BACKOFF_SECONDS * (2 ** (attempt - 1)))
+            logger.warning(
+                "LLM rate-limited (attempt %d/%d). Retrying in %.1fs", attempt, LLM_MAX_RETRIES, wait
+            )
+            if attempt < LLM_MAX_RETRIES:
+                time.sleep(wait)
+    # All retries exhausted — re-raise so the caller can handle gracefully
+    raise last_exc
 
 
 def add_section_heading(doc: Document, text: str):
@@ -216,7 +262,7 @@ def tailor_resume_tool(resume_text: str, job_description: str) -> str:
     Tailors a resume and returns a JSON string with 'preview' (markdown) and 'file_content' (base64).
     """
     client = get_llm_client()
-    model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    model_name = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
     # Extract company metadata for filename
     job_meta = extract_job_metadata(job_description)
@@ -250,14 +296,20 @@ def tailor_resume_tool(resume_text: str, job_description: str) -> str:
     }}
     """
 
-    response = client.chat.completions.create(
-        model=model_name,
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant that outputs JSON."},
-            {"role": "user", "content": prompt},
-        ],
-        response_format={"type": "json_object"},
-    )
+    try:
+        response = call_llm_with_retry(
+            client,
+            model=model_name,
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that outputs JSON."},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+        )
+    except RateLimitError as exc:
+        retry_after = _parse_retry_after(exc)
+        hint = f" Please try again in about {retry_after:.0f} seconds." if retry_after else " Please try again shortly."
+        return json.dumps({"error": f"The Gemini API quota is currently exhausted.{hint}"})
 
     try:
         content = response.choices[0].message.content
@@ -311,7 +363,7 @@ def extract_job_metadata(job_description: str) -> dict:
         return _METADATA_CACHE[cache_key]
 
     client = get_llm_client()
-    model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    model_name = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
     prompt = f"""
     You are an information extraction assistant.
@@ -330,14 +382,21 @@ def extract_job_metadata(job_description: str) -> dict:
     }}
     """
 
-    resp = client.chat.completions.create(
-        model=model_name,
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant that outputs ONLY valid JSON."},
-            {"role": "user", "content": prompt},
-        ],
-        response_format={"type": "json_object"},
-    )
+    try:
+        resp = call_llm_with_retry(
+            client,
+            model=model_name,
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that outputs ONLY valid JSON."},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+        )
+    except RateLimitError:
+        # If metadata extraction is rate-limited even after retries, fall back to
+        # null values so the caller can still proceed.
+        logger.warning("Job metadata extraction rate-limited; returning null metadata.")
+        return {"company_name": None, "company_location": None}
 
     content = resp.choices[0].message.content
     try:
@@ -367,7 +426,7 @@ def generate_cover_letter_tool(resume_text: str, job_description: str) -> str:
     Company name and location are extracted once and then enforced.
     """
     client = get_llm_client()
-    model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    model_name = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
     current_date = datetime.now().strftime("%B %d, %Y")
 
@@ -421,14 +480,20 @@ def generate_cover_letter_tool(resume_text: str, job_description: str) -> str:
     }}
     """
 
-    response = client.chat.completions.create(
-        model=model_name,
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant that outputs JSON only."},
-            {"role": "user", "content": prompt},
-        ],
-        response_format={"type": "json_object"},
-    )
+    try:
+        response = call_llm_with_retry(
+            client,
+            model=model_name,
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that outputs JSON only."},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+        )
+    except RateLimitError as exc:
+        retry_after = _parse_retry_after(exc)
+        hint = f" Please try again in about {retry_after:.0f} seconds." if retry_after else " Please try again shortly."
+        return json.dumps({"error": f"The Gemini API quota is currently exhausted.{hint}"})
 
     try:
         content = response.choices[0].message.content

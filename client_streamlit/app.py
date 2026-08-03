@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import uuid
+import time
 from pathlib import Path
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -26,7 +27,43 @@ client = OpenAI(
     api_key=os.getenv("GEMINI_API_KEY"),
     base_url=os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/"),
 )
-model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+model_name = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+
+# Retry configuration for Gemini API rate-limit (429) errors.
+LLM_MAX_RETRIES = 4
+LLM_BASE_BACKOFF_SECONDS = 2.0
+
+
+def _parse_retry_after(exc: RateLimitError) -> float | None:
+    """Extract the 'Please retry in Xs' hint from a Gemini RateLimitError."""
+    match = re.search(r"Please retry in ([0-9.]+)s", str(exc))
+    if match:
+        try:
+            return float(match.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+def call_llm_with_retry(**kwargs):
+    """
+    Call the Gemini LLM with automatic retry on 429 RateLimitError.
+
+    Uses exponential backoff, but respects the 'Please retry in Xs' hint
+    returned by Gemini when available.  Raises the last RateLimitError if
+    all retries are exhausted.
+    """
+    last_exc = None
+    for attempt in range(1, LLM_MAX_RETRIES + 1):
+        try:
+            return client.chat.completions.create(**kwargs)
+        except RateLimitError as exc:
+            last_exc = exc
+            retry_after = _parse_retry_after(exc)
+            wait = retry_after if retry_after else (LLM_BASE_BACKOFF_SECONDS * (2 ** (attempt - 1)))
+            if attempt < LLM_MAX_RETRIES:
+                time.sleep(wait)
+    raise last_exc
 
 # -----------------------------------------------------------------------------
 # Session State Initialization
@@ -72,7 +109,7 @@ with st.sidebar:
             break
             
     if logo_path:
-        st.image(str(logo_path), use_container_width=True)
+        st.image(str(logo_path), width='stretch')
 
     st.title("Resume Upload")
     uploaded_file = st.file_uploader("Upload your resume", type=["txt", "md", "pdf", "docx"])
@@ -182,18 +219,17 @@ async def run_chat_logic(user_input):
             messages = [{"role": "system", "content": system_prompt}] + recent_messages
 
             try:
-                response = client.chat.completions.create(
+                response = call_llm_with_retry(
                     model=model_name,
                     messages=messages,
                     tools=openai_tools,
                     tool_choice="auto"
                 )
             except RateLimitError as exc:
-                message = str(exc)
-                retry_match = re.search(r"Please retry in ([0-9.]+)s", message)
+                retry_after = _parse_retry_after(exc)
                 retry_text = (
-                    f" Please try again in about {float(retry_match.group(1)):.0f} seconds."
-                    if retry_match
+                    f" Please try again in about {retry_after:.0f} seconds."
+                    if retry_after
                     else " Please try again shortly."
                 )
                 return (
@@ -234,13 +270,12 @@ async def run_chat_logic(user_input):
                     })
 
                 try:
-                    second = client.chat.completions.create(model=model_name, messages=messages)
+                    second = call_llm_with_retry(model=model_name, messages=messages)
                 except RateLimitError as exc:
-                    message = str(exc)
-                    retry_match = re.search(r"Please retry in ([0-9.]+)s", message)
+                    retry_after = _parse_retry_after(exc)
                     retry_text = (
-                        f" Please try again in about {float(retry_match.group(1)):.0f} seconds."
-                        if retry_match
+                        f" Please try again in about {retry_after:.0f} seconds."
+                        if retry_after
                         else " Please try again shortly."
                     )
                     return (
