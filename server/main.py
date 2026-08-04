@@ -19,14 +19,22 @@ logging.basicConfig(level=logging.INFO)
 mcp = FastMCP("Job Assistant", host="0.0.0.0", port=8080)
 
 @mcp.tool()
-def search_jobs(search_term: str, location: str = "", results_wanted: int = 10) -> list:
+def search_jobs(
+    search_term: str = "",
+    location: str = "",
+    results_wanted: int = 10,
+    query: str = "",
+    no_clearance: bool = False,
+    work_type: str = "All"
+) -> list:
     """
-    Search for jobs on various platforms (Indeed, LinkedIn, etc.).
+    Search for jobs on various platforms (Indeed, LinkedIn, Glassdoor, ZipRecruiter).
     Returns a list of job dictionaries with title, company, location, job_url, and description.
     
-    IMPORTANT: The result ALREADY contains the job description in the 'description' field.
+    IMPORTANT: Every result contains a 'job_url'. You MUST ALWAYS include the clickable URL (e.g. [Job Title](job_url) or [View Posting](job_url)) for each position retrieved.
     """
-    return search_jobs_tool(search_term, location, results_wanted)
+    term = search_term if search_term else query
+    return search_jobs_tool(term, location, results_wanted, no_clearance=no_clearance, work_type=work_type)
 
 @mcp.tool()
 def tailor_resume(resume_text: str, job_description: str) -> str:

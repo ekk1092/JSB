@@ -1,7 +1,7 @@
 from datetime import datetime
 
-def build_enhanced_system_prompt(resume_text=None, tools_list=None):
-    """Build system prompt incorporating server capabilities and resume context."""
+def build_enhanced_system_prompt(resume_text=None, tools_list=None, preferences=None, profile=None):
+    """Build system prompt incorporating server capabilities, preferences, and resume profile context."""
     current_date = datetime.now().strftime("%B %d, %Y")
     base_prompt = f"""You are a Job Search Assistant helping candidates find opportunities and navigate applications. When asked to create a resume
     return a docx file that is in Microsoft Word format. Today is {current_date}.
@@ -35,6 +35,7 @@ def build_enhanced_system_prompt(resume_text=None, tools_list=None):
     - Cast a wide net initially, then refine based on feedback
 
     Present findings clearly:
+    - ALWAYS include the direct clickable link to each job posting (e.g., `[Job Title](job_url)` or `[Apply / View Posting](job_url)` using the `job_url` field returned by the tool).
     - Job title and company
     - Location and work arrangement
     - Key requirements and responsibilities
@@ -77,6 +78,12 @@ def build_enhanced_system_prompt(resume_text=None, tools_list=None):
     - Professional, enthusiastic tone
     - Format: Create as .docx using create_cover_letter tool
 
+    ## HANDLING USER PREFERENCES & CONSTRAINTS
+    When a candidate shares constraints or preferences (e.g., "I don't have US citizenship", "don't give me jobs that need clearance", "remote only"):
+    1. Acknowledge and confirm their constraint directly.
+    2. NEVER pass conversational text (such as "don't give me jobs that need clearance" or "I don't have US citizenship" or "?") as the `search_term` parameter in `search_jobs`!
+    3. When calling `search_jobs`, ALWAYS use standard job titles (e.g., "Data Analyst", "Data Scientist", "Data Engineer") and pass preference flags (`no_clearance=True`, `work_type="..."`).
+
     ## KEY PRINCIPLES
 
     1. **Goal-Oriented, Not Experience-Limited**: Help candidates reach for roles they ASPIRE to, not just what they've done
@@ -99,6 +106,12 @@ def build_enhanced_system_prompt(resume_text=None, tools_list=None):
     if tools_list:
         for tool in tools_list:
              base_prompt += f"- {tool['function']['name']}: {tool['function']['description']}\n"
+
+    if preferences:
+        base_prompt += f"\n## ACTIVE CANDIDATE SEARCH PREFERENCES:\n- No Security Clearance Required: {preferences.get('no_clearance', False)}\n- Preferred Work Arrangement: {preferences.get('work_type', 'All')}\n- Target Location: {preferences.get('target_location', 'Any')}\n"
+
+    if profile:
+        base_prompt += f"\n## CANDIDATE AI PROFILE:\n- Level: {profile.get('experience_level')}\n- Top Skills: {', '.join(profile.get('skills', []))}\n- Target Roles: {', '.join(profile.get('suggested_roles', []))}\n"
 
     if resume_text:
         base_prompt += f"\n## CANDIDATE RESUME CONTEXT:\n{resume_text}\n"

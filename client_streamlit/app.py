@@ -5,6 +5,7 @@ import sys
 import tempfile
 import uuid
 import time
+import json
 from pathlib import Path
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -15,6 +16,7 @@ import base64
 import re
 from prompts import build_enhanced_system_prompt
 from openai import RateLimitError
+from resume_analyzer import analyze_resume_profile, calculate_job_match
 
 # Load environment variables
 load_dotenv()
@@ -52,10 +54,6 @@ def _normalize_text(value) -> str:
 def call_llm_with_retry(**kwargs):
     """
     Call the Gemini LLM with automatic retry on 429 RateLimitError.
-
-    Uses exponential backoff, but respects the 'Please retry in Xs' hint
-    returned by Gemini when available.  Raises the last RateLimitError if
-    all retries are exhausted.
     """
     last_exc = None
     for attempt in range(1, LLM_MAX_RETRIES + 1):
@@ -73,19 +71,24 @@ def call_llm_with_retry(**kwargs):
 # Session State Initialization
 # -----------------------------------------------------------------------------
 MAX_MESSAGES = 20  # Cap chat history sent to the LLM to bound context/cost
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+MAX_FILE_SIZE_MB = 10
 
-if "resume_text" not in st.session_state:
-    st.session_state.resume_text = None
+st.session_state.setdefault("messages", [])
+st.session_state.setdefault("resume_text", None)
+st.session_state.setdefault("resume_path", None)
+st.session_state.setdefault("resume_profile", None)
+st.session_state.setdefault("last_generated_content", None)
+st.session_state.setdefault("last_generated_type", None)
+st.session_state.setdefault("last_generated_filename", None)
 
-if "resume_path" not in st.session_state:
-    st.session_state.resume_path = None
+# Candidate Preferences Memory
+if "search_preferences" not in st.session_state:
+    st.session_state.search_preferences = {
+        "no_clearance": False,
+        "work_type": "All",
+        "target_location": ""
+    }
 
-# persistent file state
-for key in ["last_generated_content", "last_generated_type", "last_generated_filename"]:
-    if key not in st.session_state:
-        st.session_state[key] = None
 
 # -----------------------------------------------------------------------------
 # CLEAR BUTTON CALLBACK
@@ -95,15 +98,15 @@ def clear_generated_state():
     st.session_state.last_generated_type = None
     st.session_state.last_generated_filename = None
 
+
 # -----------------------------------------------------------------------------
-# SIDEBAR — UPLOAD + PERSISTENT DOWNLOAD
+# SIDEBAR — UPLOAD + PROFILE + PREFERENCES + DOWNLOAD
 # -----------------------------------------------------------------------------
 with st.sidebar:
-    # Robust logo path resolution
     possible_paths = [
-        Path(__file__).parent / "jsb_logo.png",                 # When run directly
-        Path.cwd() / "client_streamlit" / "jsb_logo.png",       # When run from root
-        Path("jsb_logo.png")                                    # Fallback
+        Path(__file__).parent / "jsb_logo.png",
+        Path.cwd() / "client_streamlit" / "jsb_logo.png",
+        Path("jsb_logo.png")
     ]
     
     logo_path = None
@@ -113,63 +116,130 @@ with st.sidebar:
             break
             
     if logo_path:
-        st.image(str(logo_path), width='stretch')
+        st.image(str(logo_path), width="stretch")
 
-    st.title("Resume Upload")
-    uploaded_file = st.file_uploader("Upload your resume", type=["txt", "md", "pdf", "docx"])
-
-    if uploaded_file:
-        try:
-            tmp_dir = Path(tempfile.gettempdir())
-            safe_name = f"{uuid.uuid4()}_{uploaded_file.name}"
-            resume_abs_path = tmp_dir / safe_name
-
-            with open(resume_abs_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-
-            st.session_state.resume_path = str(resume_abs_path)
-
-            ext = uploaded_file.name.split(".")[-1].lower()
-            text = ""
-
-            if ext in ["txt", "md"]:
-                text = uploaded_file.getvalue().decode("utf-8")
-            elif ext == "pdf":
-                import pypdf
-                pdf_reader = pypdf.PdfReader(io.BytesIO(uploaded_file.getvalue()))
-                for page in pdf_reader.pages:
-                    text += page.extract_text() + "\n"
-            elif ext == "docx":
-                import docx
-                doc_obj = docx.Document(io.BytesIO(uploaded_file.getvalue()))
-                for para in doc_obj.paragraphs:
-                    text += para.text + "\n"
-
-            st.session_state.resume_text = text
-            st.success("✅ Resume uploaded!")
-
-        except Exception as e:
-            st.error(f"Error: {e}")
-
-    # -------------------------------------------------------------
-    # ⭐ PERSISTENT DOWNLOAD SECTION
-    # -------------------------------------------------------------
-    st.markdown("---")
-    st.subheader("Generated Documents")
-
-    if st.session_state.last_generated_content:
-        label = st.session_state.last_generated_type.replace("_", " ").title()
-        filename = st.session_state.last_generated_filename or f"{label}.docx"
-
-        st.download_button(
-            label=f"⬇ Download {label}",
-            data=st.session_state.last_generated_content,
-            file_name=filename,
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            key="persistent_download_button"
+    # 1. Resume Upload Container
+    with st.container(border=True):
+        st.subheader("📁 Resume upload")
+        uploaded_file = st.file_uploader(
+            "Upload your resume",
+            type=["txt", "md", "pdf", "docx"],
+            label_visibility="collapsed"
         )
-    else:
-        st.caption("No generated documents yet.")
+
+        if uploaded_file:
+            if uploaded_file.size > MAX_FILE_SIZE_MB * 1024 * 1024:
+                st.error(f"File size exceeds maximum allowed size of {MAX_FILE_SIZE_MB}MB.")
+            else:
+                try:
+                    tmp_dir = Path(tempfile.gettempdir())
+                    safe_name = f"{uuid.uuid4()}_{uploaded_file.name}"
+                    resume_abs_path = tmp_dir / safe_name
+
+                    with open(resume_abs_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+
+                    st.session_state.resume_path = str(resume_abs_path)
+
+                    ext = uploaded_file.name.split(".")[-1].lower()
+                    text = ""
+
+                    if ext in ["txt", "md"]:
+                        text = uploaded_file.getvalue().decode("utf-8")
+                    elif ext == "pdf":
+                        import pypdf
+                        pdf_reader = pypdf.PdfReader(io.BytesIO(uploaded_file.getvalue()))
+                        for page in pdf_reader.pages:
+                            text += (page.extract_text() or "") + "\n"
+                    elif ext == "docx":
+                        import docx
+                        doc_obj = docx.Document(io.BytesIO(uploaded_file.getvalue()))
+                        for para in doc_obj.paragraphs:
+                            text += para.text + "\n"
+
+                    st.session_state.resume_text = text
+                    st.session_state.resume_profile = analyze_resume_profile(text)
+                    st.success("✅ Resume analyzed!")
+
+                except Exception as e:
+                    st.error(f"Error reading file: {e}")
+
+    # 2. Candidate AI Profile Card
+    if st.session_state.resume_profile:
+        prof = st.session_state.resume_profile
+        with st.container(border=True):
+            st.subheader("👤 Candidate AI profile")
+            st.caption(f"**Level:** {prof.get('experience_level', 'Entry-Level')}")
+            
+            skills = prof.get("skills", [])
+            if skills:
+                st.markdown("**Top Skills:** " + ", ".join(f"`{s}`" for s in skills[:6]))
+            
+            roles = prof.get("suggested_roles", [])
+            if roles:
+                st.markdown("**Suggested Roles:**")
+                try:
+                    selected_role = st.pills(
+                        "Target Roles",
+                        options=roles,
+                        selection_mode="single",
+                        label_visibility="collapsed"
+                    )
+                    if selected_role:
+                        st.session_state["pending_prompt"] = f"Search for {selected_role} positions"
+                except Exception:
+                    # Fallback for older Streamlit without st.pills
+                    for r in roles[:3]:
+                        if st.button(f"🔍 {r}", key=f"btn_role_{r}"):
+                            st.session_state["pending_prompt"] = f"Search for {r} positions"
+
+    # 3. Candidate Search Preferences
+    with st.expander("⚙️ Search preferences", expanded=False):
+        no_clearance_val = st.checkbox(
+            "Exclude security clearance jobs",
+            value=st.session_state.search_preferences["no_clearance"]
+        )
+        try:
+            work_type_val = st.segmented_control(
+                "Work arrangement",
+                options=["All", "Remote", "Hybrid", "On-site"],
+                default=st.session_state.search_preferences["work_type"]
+            )
+        except Exception:
+            work_type_val = st.radio(
+                "Work arrangement",
+                options=["All", "Remote", "Hybrid", "On-site"],
+                index=["All", "Remote", "Hybrid", "On-site"].index(st.session_state.search_preferences["work_type"]) if st.session_state.search_preferences["work_type"] in ["All", "Remote", "Hybrid", "On-site"] else 0
+            )
+
+        target_loc_val = st.text_input(
+            "Preferred city / location",
+            value=st.session_state.search_preferences["target_location"],
+            placeholder="e.g. Wilmington, DE"
+        )
+        
+        st.session_state.search_preferences["no_clearance"] = no_clearance_val
+        st.session_state.search_preferences["work_type"] = work_type_val or "All"
+        st.session_state.search_preferences["target_location"] = target_loc_val
+
+    # 4. Persistent Document Download
+    with st.container(border=True):
+        st.subheader("📄 Generated documents")
+
+        if st.session_state.last_generated_content:
+            label = st.session_state.last_generated_type.replace("_", " ").title()
+            filename = st.session_state.last_generated_filename or f"{label}.docx"
+
+            st.download_button(
+                label=f"Download {label}",
+                data=st.session_state.last_generated_content,
+                file_name=filename,
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key="persistent_download_button",
+                type="primary"
+            )
+        else:
+            st.caption("No generated documents yet.")
 
 # -----------------------------------------------------------------------------
 # MAIN CHAT UI
@@ -215,7 +285,9 @@ async def run_chat_logic(user_input):
 
             system_prompt = build_enhanced_system_prompt(
                 st.session_state.resume_text,
-                openai_tools
+                openai_tools,
+                preferences=st.session_state.get("search_preferences"),
+                profile=st.session_state.get("resume_profile")
             )
 
             # Cap history to the most recent N messages to bound context window
@@ -246,11 +318,14 @@ async def run_chat_logic(user_input):
             final_response = ""
 
             if response_message.tool_calls:
-                messages.append(response_message)
+                if hasattr(response_message, "model_dump"):
+                    messages.append(response_message.model_dump(exclude_none=True))
+                else:
+                    messages.append(response_message)
 
                 for call in response_message.tool_calls:
                     import json
-                    args = json.loads(call.function.arguments)
+                    args = json.loads(call.function.arguments) if call.function.arguments else {}
                     result = await session.call_tool(call.function.name, arguments=args)
 
                     parts = []
@@ -275,6 +350,7 @@ async def run_chat_logic(user_input):
 
                 try:
                     second = call_llm_with_retry(model=model_name, messages=messages)
+                    final_response = _normalize_text(second.choices[0].message.content)
                 except RateLimitError as exc:
                     retry_after = _parse_retry_after(exc)
                     retry_text = (
@@ -286,7 +362,9 @@ async def run_chat_logic(user_input):
                         "The Gemini API quota is currently exhausted." + retry_text,
                         [],
                     )
-                final_response = _normalize_text(second.choices[0].message.content)
+                except Exception as exc:
+                    st.error(f"Error getting completion after tool execution: {exc}")
+                    final_response = ""
 
             else:
                 final_response = _normalize_text(response_message.content)
@@ -296,62 +374,132 @@ async def run_chat_logic(user_input):
 # -----------------------------------------------------------------------------
 # CHAT INPUT HANDLER
 # -----------------------------------------------------------------------------
+user_prompt = None
 if prompt := st.chat_input("How can I help you?"):
+    user_prompt = prompt
+elif st.session_state.get("pending_prompt"):
+    user_prompt = st.session_state.pop("pending_prompt")
+
+if user_prompt:
     # 👉 DO NOT clear generated files — we want persistent downloads
-    st.session_state.messages.append({"role": "user", "content": prompt})
+    st.session_state.messages.append({"role": "user", "content": user_prompt})
 
     with st.chat_message("user"):
-        st.markdown(prompt)
+        st.markdown(user_prompt)
 
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                final_response, tool_outputs = asyncio.run(run_chat_logic(prompt))
+                final_response, tool_outputs = asyncio.run(run_chat_logic(user_prompt))
 
                 for output in tool_outputs:
                     content = _normalize_text(output["content"])
 
                     if output["name"] in ["tailor_resume", "generate_cover_letter"]:
-                        import json
-                        data = json.loads(content)
-
-                        if "error" in data:
-                            st.error(f"Generation failed: {data['error']}")
-                        
-                        if "preview" in data:
-                            st.markdown(data["preview"])
-
-                        if "file_content" in data:
-                            file_bytes = base64.b64decode(data["file_content"])
-                            st.session_state.last_generated_content = file_bytes
-                            st.session_state.last_generated_type = (
-                                "resume" if output["name"] == "tailor_resume" else "cover_letter"
-                            )
-                            st.session_state.last_generated_filename = data.get("filename")
+                        try:
+                            data = json.loads(content)
+                            if "error" in data:
+                                st.error(f"Generation failed: {data['error']}")
                             
-                            # Ensure the assistant's response is added to chat history before rerun
-                            import re
-                            # Remove raw paths
-                            clean = re.sub(r"/tmp/[^\s]+\.docx", "", final_response)
-                            # Remove markdown links to docx files
-                            clean = re.sub(r"\[.*?\]\(.*\.docx\)", "", clean)
-                            # Remove trailing "Download" text if it remains
-                            clean = clean.replace("Download Cover Letter", "").replace("Download Resume", "")
-                            # Ensure direction points to sidebar
-                            clean = clean.replace("button below", "button in the sidebar")
-                            
-                            st.session_state.messages.append({"role": "assistant", "content": clean})
-                            
-                            st.rerun()
+                            if "preview" in data:
+                                st.markdown(data["preview"])
 
-                    elif output["name"] not in ["search_jobs", "scrape_job_description"]:
+                            if "file_content" in data:
+                                file_bytes = base64.b64decode(data["file_content"])
+                                st.session_state.last_generated_content = file_bytes
+                                st.session_state.last_generated_type = (
+                                    "resume" if output["name"] == "tailor_resume" else "cover_letter"
+                                )
+                                st.session_state.last_generated_filename = data.get("filename")
+                                
+                                clean = re.sub(r"/tmp/[^\s]+\.docx", "", final_response)
+                                clean = re.sub(r"\[.*?\]\(.*\.docx\)", "", clean)
+                                clean = clean.replace("Download Cover Letter", "").replace("Download Resume", "")
+                                clean = clean.replace("button below", "button in the sidebar")
+                                
+                                st.session_state.messages.append({"role": "assistant", "content": clean})
+                                st.rerun()
+                        except Exception as parse_err:
+                            st.markdown(content)
+
+                    elif output["name"] == "search_jobs":
+                        try:
+                            jobs_data = json.loads(content)
+                            if isinstance(jobs_data, list) and jobs_data:
+                                resume_text = st.session_state.get("resume_text", "")
+                                profile_skills = st.session_state.resume_profile.get("skills", []) if st.session_state.resume_profile else []
+
+                                st.markdown("### 🔍 Retrieved Positions & Match Analysis")
+                                for idx, job in enumerate(jobs_data[:6]):
+                                    match = calculate_job_match(
+                                        resume_text,
+                                        profile_skills,
+                                        job.get("title", ""),
+                                        job.get("description", "")
+                                    )
+
+                                    score = match["match_percentage"]
+                                    badge_color = ":green" if score >= 75 else (":orange" if score >= 55 else ":red")
+
+                                    with st.container(border=True):
+                                        col1, col2 = st.columns([3, 1])
+                                        with col1:
+                                            title = job.get('title', 'Job Posting')
+                                            company = job.get('company', 'Company')
+                                            url = job.get('job_url') or job.get('url') or '#'
+                                            st.markdown(f"#### [{title}]({url})")
+                                            st.caption(f"**Company:** {company} | **Location:** {job.get('location', 'Not specified')}")
+                                        with col2:
+                                            st.markdown(f"### {badge_color}[{score}% Match]")
+
+                                        matched_str = ", ".join(f"`{s}`" for s in match["matched_skills"]) if match["matched_skills"] else "None specified"
+                                        missing_str = ", ".join(f"`{s}`" for s in match["missing_skills"]) if match["missing_skills"] else "None"
+                                        st.markdown(f"**Matched Skills:** ✅ {matched_str}")
+                                        st.markdown(f"**Skills to Highlight / Gap:** ⚠️ {missing_str}")
+
+                                        with st.expander("Show Description Snippet"):
+                                            st.write(job.get("description", "No description provided.")[:600] + "...")
+
+                                        # 1-Click Action Buttons
+                                        b1, b2, b3 = st.columns(3)
+                                        with b1:
+                                            if st.button("📄 Tailor Resume", key=f"tailor_{idx}_{hash(title)}"):
+                                                st.session_state["pending_prompt"] = f"Tailor my resume for the {title} position at {company}. Job description: {job.get('description', '')[:2000]}"
+                                                st.rerun()
+                                        with b2:
+                                            if st.button("✉️ Cover Letter", key=f"cover_{idx}_{hash(title)}"):
+                                                st.session_state["pending_prompt"] = f"Generate a cover letter for the {title} position at {company}. Job description: {job.get('description', '')[:2000]}"
+                                                st.rerun()
+                                        with b3:
+                                            if url != "#":
+                                                st.link_button("🔗 View Posting", url)
+                        except Exception:
+                            pass
+
+                    elif output["name"] not in ["scrape_job_description"]:
                         st.markdown(content)
 
                 # Remove file path noise
                 import re
                 clean = re.sub(r"/tmp/[^\s]+\.docx", "", _normalize_text(final_response))
                 if not clean.strip():
-                    clean = "I couldn't generate a response because the tool request failed. Please try again."
+                    has_jobs = False
+                    if tool_outputs:
+                        for output in tool_outputs:
+                            if output["name"] == "search_jobs":
+                                try:
+                                    j_data = json.loads(_normalize_text(output["content"]))
+                                    if isinstance(j_data, list) and len(j_data) > 0:
+                                        has_jobs = True
+                                except Exception:
+                                    pass
+
+                    if has_jobs:
+                        clean = "Above are the active position listings matching your request. Click **Tailor Resume** or **Cover Letter** on any posting to create customized application documents!"
+                    elif tool_outputs:
+                        clean = "No active listings were found matching that exact search query. Would you like me to search for related roles or in a specific city/state?"
+                    else:
+                        clean = "I've noted your input. Could you please specify your target role or location so I can search for matching positions?"
                 st.markdown(clean)
 
                 st.session_state.messages.append({"role": "assistant", "content": clean})
