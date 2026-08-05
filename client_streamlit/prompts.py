@@ -55,6 +55,7 @@ def build_enhanced_system_prompt(resume_text=None, tools_list=None, preferences=
     - The system will automatically show a download button in the sidebar.
     - DO NOT generate a markdown link to the file in the chat.
     - Inform the user that the document is ready for download in the sidebar.
+    - CRITICAL: After calling tailor_resume or generate_cover_letter, DO NOT call search_jobs or search for new positions! Conclude your response immediately after confirming document creation.
 
     Example response: "I've created a tailored cover letter for the [Position] at [Company]. The document is ready for download using the button in the sidebar."
 

@@ -75,7 +75,12 @@ def _scrape_single_site(site_name: str, query: str, location: str, limit: int):
     )
     if jobs is None or jobs.empty:
         return []
-    jobs = jobs.fillna("")
+    # Fill NaN only in text columns so string-based filters/regex work,
+    # while preserving null for numeric/other columns (JSON compatibility).
+    text_cols = ["title", "company", "location", "description", "job_url", "url", "job_url_direct"]
+    for col in text_cols:
+        if col in jobs.columns:
+            jobs[col] = jobs[col].fillna("")
     records = json.loads(
         jobs.to_json(orient="records", date_format="iso", default_handler=str)
     )

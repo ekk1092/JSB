@@ -85,6 +85,26 @@ def call_llm_with_retry(**kwargs):
                 time.sleep(wait)
     raise last_exc
 
+
+def _force_text_summary(messages: list) -> str:
+    """
+    Force a final text-only completion when the model returns empty content.
+    This is a workaround for thinking models (e.g. gemini-3.5-flash) that
+    sometimes return `content=None` after a tool call round.
+    """
+    try:
+        resp = client.chat.completions.create(
+            model=os.getenv("GEMINI_MODEL", "gemini-3.5-flash"),
+            messages=messages,
+            # No tools — force a plain text summarization
+            tool_choice="none",
+            # Lower temperature for more deterministic output
+            temperature=0.3,
+        )
+        return _normalize_text(resp.choices[0].message.content)
+    except Exception:
+        return ""
+
 # -----------------------------------------------------------------------------
 # Session State Initialization
 # -----------------------------------------------------------------------------
@@ -334,57 +354,112 @@ async def run_chat_logic(user_input):
             response_message = response.choices[0].message
             tool_outputs = []
             final_response = ""
+            MAX_TOOL_ROUNDS = 5  # Safeguard against infinite tool-call loops
 
-            if response_message.tool_calls:
-                if hasattr(response_message, "model_dump"):
-                    messages.append(response_message.model_dump(exclude_none=True))
-                else:
-                    messages.append(response_message)
+            # ------------------------------------------------------------------
+            # Loop through multiple rounds of tool calls until the model produces
+            # a final text response.  This fixes the "dumb" canned fallback: the
+            # previous code only handled ONE tool round and did NOT pass `tools`
+            # on the follow-up completion.  Thinking models (e.g. gemini-3.5-flash)
+            # return `content=None` when they want to make another tool call, which
+            # left `final_response` empty and triggered the generic fallback text.
+            # ------------------------------------------------------------------
+            num_tool_rounds = 0
+            while True:
+                if response_message.tool_calls:
+                    # Guard against infinite tool-call loops
+                    num_tool_rounds += 1
+                    if num_tool_rounds > MAX_TOOL_ROUNDS:
+                        final_response = (
+                            "I've made several tool calls to complete your request. "
+                            "Please check the results above or rephrase your request."
+                        )
+                        break
 
-                for call in response_message.tool_calls:
-                    args = json.loads(call.function.arguments) if call.function.arguments else {}
-                    result = await session.call_tool(call.function.name, arguments=args)
-
-                    parts = []
-                    if hasattr(result, "content") and isinstance(result.content, list):
-                        for item in result.content:
-                            if hasattr(item, "text"):
-                                parts.append(item.text)
-                            else:
-                                parts.append(str(item))
-                        content = "\n".join(parts)
+                    if hasattr(response_message, "model_dump"):
+                        messages.append(response_message.model_dump(exclude_none=True))
                     else:
-                        content = str(result)
+                        messages.append(response_message)
 
-                    tool_outputs.append({"name": call.function.name, "content": content})
+                    for call in response_message.tool_calls:
+                        args = json.loads(call.function.arguments) if call.function.arguments else {}
+                        result = await session.call_tool(call.function.name, arguments=args)
 
-                    messages.append({
-                        "tool_call_id": call.id,
-                        "role": "tool",
-                        "name": call.function.name,
-                        "content": content
-                    })
+                        parts = []
+                        if hasattr(result, "content") and isinstance(result.content, list):
+                            for item in result.content:
+                                if hasattr(item, "text"):
+                                    parts.append(item.text)
+                                else:
+                                    parts.append(str(item))
+                            content = "\n".join(parts)
+                        else:
+                            content = str(result)
 
-                try:
-                    second = call_llm_with_retry(model=model_name, messages=messages)
-                    final_response = _normalize_text(second.choices[0].message.content)
-                except RateLimitError as exc:
-                    retry_after = _parse_retry_after(exc)
-                    retry_text = (
-                        f" Please try again in about {retry_after:.0f} seconds."
-                        if retry_after
-                        else " Please try again shortly."
+                        tool_outputs.append({"name": call.function.name, "content": content})
+
+                        messages.append({
+                            "tool_call_id": call.id,
+                            "role": "tool",
+                            "name": call.function.name,
+                            "content": content
+                        })
+
+                    # Check if document creation tools were executed in this round
+                    has_doc_tool = any(
+                        call.function.name in ["tailor_resume", "generate_cover_letter"]
+                        for call in response_message.tool_calls
                     )
-                    return (
-                        "The Gemini API quota is currently exhausted." + retry_text,
-                        [],
-                    )
-                except Exception as exc:
-                    st.error(f"Error getting completion after tool execution: {exc}")
-                    final_response = ""
 
-            else:
-                final_response = _normalize_text(response_message.content)
+                    try:
+                        # If a document tool was called, force text-only completion (no more tool calls)
+                        if has_doc_tool:
+                            second = call_llm_with_retry(
+                                model=model_name,
+                                messages=messages,
+                                tool_choice="none"
+                            )
+                        else:
+                            second = call_llm_with_retry(
+                                model=model_name,
+                                messages=messages,
+                                tools=openai_tools,
+                                tool_choice="auto"
+                            )
+                    except RateLimitError as exc:
+                        retry_after = _parse_retry_after(exc)
+                        retry_text = (
+                            f" Please try again in about {retry_after:.0f} seconds."
+                            if retry_after
+                            else " Please try again shortly."
+                        )
+                        return (
+                            "The Gemini API quota is currently exhausted." + retry_text,
+                            [],
+                        )
+                    except Exception as exc:
+                        st.error(f"Error getting completion after tool execution: {exc}")
+                        break
+
+                    response_message = second.choices[0].message
+
+                    # If the model produced a final text answer after this round,
+                    # capture it and validate it is non-empty.
+                    if not response_message.tool_calls:
+                        final_response = _normalize_text(response_message.content)
+                        # Thinking models sometimes return empty content; force a
+                        # final text-only completion so the user gets a real reply.
+                        if not final_response.strip():
+                            final_response = _force_text_summary(messages)
+                        break
+
+                else:
+                    final_response = _normalize_text(response_message.content)
+                    # If content is empty (thinking models sometimes return None),
+                    # force a final text-only completion.
+                    if not final_response.strip():
+                        final_response = _force_text_summary(messages)
+                    break
 
             return final_response, tool_outputs
 
