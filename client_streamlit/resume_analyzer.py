@@ -1,4 +1,5 @@
 import re
+import streamlit as st
 from typing import List, Dict, Any
 
 COMMON_SKILLS = [
@@ -18,6 +19,7 @@ JOB_ROLE_KEYWORDS = {
     "Software Engineer": ["java", "python", "c++", "javascript", "react", "node", "git", "rest api", "system design"]
 }
 
+@st.cache_data
 def analyze_resume_profile(resume_text: str) -> Dict[str, Any]:
     """
     Analyzes raw resume text to extract skills, experience level, and suggested target roles.

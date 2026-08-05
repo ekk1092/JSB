@@ -6,16 +6,16 @@ import tempfile
 import uuid
 import time
 import json
-from pathlib import Path
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
-from openai import OpenAI
-from dotenv import load_dotenv
 import io
 import base64
 import re
+import traceback
+from pathlib import Path
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+from openai import OpenAI, RateLimitError
+from dotenv import load_dotenv
 from prompts import build_enhanced_system_prompt
-from openai import RateLimitError
 from resume_analyzer import analyze_resume_profile, calculate_job_match
 
 # Load environment variables
@@ -49,6 +49,24 @@ def _parse_retry_after(exc: RateLimitError) -> float | None:
 
 def _normalize_text(value) -> str:
     return value if isinstance(value, str) else ""
+
+
+def _safe_parse_json(content: str):
+    if not content or not isinstance(content, str):
+        return None
+    try:
+        return json.loads(content)
+    except Exception:
+        try:
+            return json.loads(content, strict=False)
+        except Exception:
+            try:
+                match = re.search(r"\[\s*\{.*\}\s*\]", content, re.DOTALL)
+                if match:
+                    return json.loads(match.group(0), strict=False)
+            except Exception:
+                pass
+    return None
 
 
 def call_llm_with_retry(**kwargs):
@@ -324,7 +342,6 @@ async def run_chat_logic(user_input):
                     messages.append(response_message)
 
                 for call in response_message.tool_calls:
-                    import json
                     args = json.loads(call.function.arguments) if call.function.arguments else {}
                     result = await session.call_tool(call.function.name, arguments=args)
 
@@ -424,7 +441,7 @@ if user_prompt:
 
                     elif output["name"] == "search_jobs":
                         try:
-                            jobs_data = json.loads(content)
+                            jobs_data = _safe_parse_json(content)
                             if isinstance(jobs_data, list) and jobs_data:
                                 resume_text = st.session_state.get("resume_text", "")
                                 profile_skills = st.session_state.resume_profile.get("skills", []) if st.session_state.resume_profile else []
@@ -475,12 +492,10 @@ if user_prompt:
                                                 st.link_button("🔗 View Posting", url)
                         except Exception:
                             pass
-
                     elif output["name"] not in ["scrape_job_description"]:
                         st.markdown(content)
 
-                # Remove file path noise
-                import re
+                # Remove file path noise from response
                 clean = re.sub(r"/tmp/[^\s]+\.docx", "", _normalize_text(final_response))
                 if not clean.strip():
                     has_jobs = False
@@ -488,7 +503,7 @@ if user_prompt:
                         for output in tool_outputs:
                             if output["name"] == "search_jobs":
                                 try:
-                                    j_data = json.loads(_normalize_text(output["content"]))
+                                    j_data = _safe_parse_json(_normalize_text(output["content"]))
                                     if isinstance(j_data, list) and len(j_data) > 0:
                                         has_jobs = True
                                 except Exception:
@@ -497,13 +512,13 @@ if user_prompt:
                     if has_jobs:
                         clean = "Above are the active position listings matching your request. Click **Tailor Resume** or **Cover Letter** on any posting to create customized application documents!"
                     elif tool_outputs:
-                        clean = "No active listings were found matching that exact search query. Would you like me to search for related roles or in a specific city/state?"
+                        clean = "I ran a live search on job boards for your request, but no open listings matched those exact search constraints on this run. Consider broadening your location preference, relaxing work arrangement filters (Remote/Hybrid), or searching for related role titles!"
                     else:
-                        clean = "I've noted your input. Could you please specify your target role or location so I can search for matching positions?"
-                st.markdown(clean)
+                        clean = "I'm ready to help! You can ask me career advice questions, upload your resume for review, or specify a target job title and city/state to search for active openings."
 
-                st.session_state.messages.append({"role": "assistant", "content": clean})
+                if clean.strip():
+                    st.markdown(clean)
+                    st.session_state.messages.append({"role": "assistant", "content": clean})
 
             except Exception as e:
-                import traceback
                 st.error(f"Error: {str(e)}\n\n{traceback.format_exc()}")

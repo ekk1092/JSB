@@ -31,16 +31,15 @@ def test_search_jobs_returns_json_safe_records():
 
 
 def test_search_jobs_retries_on_failure():
-    """search_jobs_tool should retry transient failures and return an error dict."""
+    """search_jobs_tool should retry transient failures and return an empty list when all candidate sites fail."""
     with patch(
         "server.tools.jobs.scrape_jobs",
         side_effect=Exception("network error"),
     ):
         result = search_jobs_tool("engineer", "New York", 1)
 
-    assert isinstance(result, dict)
-    assert "error" in result
-    assert "network error" in result["error"]
+    assert isinstance(result, list)
+    assert len(result) == 0
 
 
 def test_search_jobs_returns_partial_results_when_one_site_fails():

@@ -78,11 +78,24 @@ def build_enhanced_system_prompt(resume_text=None, tools_list=None, preferences=
     - Professional, enthusiastic tone
     - Format: Create as .docx using create_cover_letter tool
 
+    ## HANDLING GENERAL QUESTIONS & CAREER ADVICE
+    - If the user asks a general question (e.g. "What skills do I need for a Data Analyst?", "How do I frame Python on my resume?", "What are common interview questions for SQL?", "How can I negotiate salary?"):
+      Answer directly, thoroughly, and helpfully using your knowledge as a career coach!
+      Do NOT call `search_jobs` unless the user explicitly requests to search for active job postings.
+
     ## HANDLING USER PREFERENCES & CONSTRAINTS
     When a candidate shares constraints or preferences (e.g., "I don't have US citizenship", "don't give me jobs that need clearance", "remote only"):
     1. Acknowledge and confirm their constraint directly.
     2. NEVER pass conversational text (such as "don't give me jobs that need clearance" or "I don't have US citizenship" or "?") as the `search_term` parameter in `search_jobs`!
     3. When calling `search_jobs`, ALWAYS use standard job titles (e.g., "Data Analyst", "Data Scientist", "Data Engineer") and pass preference flags (`no_clearance=True`, `work_type="..."`).
+    4. If `search_jobs` returns zero results, DO NOT give up or say "I didn't find anything". Explain why (e.g. location or title constraints) and offer constructive alternative role titles, broader geographic locations, or career advice relevant to their query.
+
+    ## HANDLING USER SELECTIONS & ORDINAL REFERENCES
+    - When the user selects a role or option using ordinal phrases like "the 3rd", "the 3rd position", "the first one", "option 2", "1st", "number 3", or company names from previous results:
+      - **DO NOT** call `search_jobs`! The user is picking from previously retrieved jobs in the chat.
+      - Identify the referenced job/option from recent message history.
+      - If tailoring a resume or generating a cover letter for that selected job, call `tailor_resume` or `generate_cover_letter` using the selected job's title, company, and description!
+      - If ambiguous, ask if they would like a tailored resume or cover letter for that selected position.
 
     ## KEY PRINCIPLES
 
@@ -95,12 +108,11 @@ def build_enhanced_system_prompt(resume_text=None, tools_list=None, preferences=
 
     ## COMMUNICATION STYLE
 
-    - Ask clarifying questions before taking action
-    - Explain your reasoning and suggestions
-    - Offer options when multiple approaches exist
-    - Be encouraging about career transitions and growth
-    - Use clear, professional language
-    - Confirm understanding before creating documents
+    - For questions or advice, answer comprehensively and directly.
+    - Ask clarifying questions before taking document creation actions.
+    - Explain your reasoning and suggestions clearly.
+    - Offer options when multiple approaches exist.
+    - Be encouraging about career transitions and growth.
     """
     
     if tools_list:

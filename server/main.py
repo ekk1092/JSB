@@ -31,7 +31,9 @@ def search_jobs(
     Search for jobs on various platforms (Indeed, LinkedIn, Glassdoor, ZipRecruiter).
     Returns a list of job dictionaries with title, company, location, job_url, and description.
     
-    IMPORTANT: Every result contains a 'job_url'. You MUST ALWAYS include the clickable URL (e.g. [Job Title](job_url) or [View Posting](job_url)) for each position retrieved.
+    IMPORTANT:
+    - Use this tool ONLY when the user explicitly requests to search for NEW job listings.
+    - DO NOT call this tool when the user is selecting an option or ordinal reference (e.g. 'the 3rd', 'option 2', 'the first position') from previously retrieved jobs in the chat!
     """
     term = search_term if search_term else query
     return search_jobs_tool(term, location, results_wanted, no_clearance=no_clearance, work_type=work_type)
