@@ -8,7 +8,6 @@ A powerful AI-driven job search assistant that helps candidates find opportuniti
 -   **Resume Tailoring**: Customize your resume for specific job descriptions.
 -   **Cover Letter Generation**: Create personalized cover letters.
 -   **Multi-Platform**: Accessible via a **Streamlit Web UI**.
--   **Azure Integration**: Deployed on Azure Container Apps with Google Gemini.
 
 ## Architecture
 
@@ -28,7 +27,6 @@ The project consists of two main components:
 │   ├── app.py              # Main application logic
 │   └── jsb_logo.png        # Sidebar logo
 ├── Dockerfile              # Multi-service Dockerfile
-├── Deployment.md           # Azure deployment guide
 └── requirements.txt        # Dependencies
 ```
 
@@ -61,9 +59,7 @@ The project consists of two main components:
 
 ## Deployment
 
-This project is designed to be deployed on **Azure Container Apps**.
-
-See [Deployment.md](Deployment.md) for a detailed step-by-step guide.
+The application can be containerized using Docker or run locally as separate services.
 
 ## Technologies
 
@@ -72,4 +68,3 @@ See [Deployment.md](Deployment.md) for a detailed step-by-step guide.
 -   **Streamlit**
 -   **Google Gemini** (OpenAI-compatible endpoint)
 -   **Docker**
--   **Azure Container Apps**

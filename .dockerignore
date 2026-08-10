@@ -14,4 +14,3 @@ client_slack
 tests
 *.md
 !README.md
-!Deployment.md
